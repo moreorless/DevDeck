@@ -191,6 +191,11 @@ M4 人工验收：用户确认正常（2026-11-11）。
 
 **托盘简化图标（2026-11-11）**：`icons/tray/source.svg` 按 16px 网格绘制（绿底 + 三根白柱，去掉卡片），预渲染 16/20/24/32/40/48，启动时按主显示器缩放选不小于 16×缩放 的尺寸，缩放变化时更新；开启 tauri `image-png` 特性。生成命令：`pnpm tauri icon src-tauri/icons/tray/source.svg -o src-tauri/icons/tray -p 16 -p 20 -p 24 -p 32 -p 40 -p 48`。
 
+## v0.2 规划（2026-11-11）
+
+- 新增 Insights 模块方案（`docs/DevDeck 实现方案.md` 第 12 节）：归档并查看 Claude Code 原生 `/insights` 报告，再支持从 DevDeck 触发；默认关闭
+- 下一步 I0：需用户手动运行一次 `/insights`，并同意实测 `claude -p "/insights"`
+
 ## 待确认
 
 - 离线且无 WebView2 的机器：如有需要，另出 `offlineInstaller` 版本安装包

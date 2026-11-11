@@ -1,6 +1,6 @@
 # DevDeck 实现方案（v0.1 版本）
 
-文档修订：2026-11-06 初稿（ClaudeMeter，基于 ccusage）→ 2026-11-09 修订（改名 DevDeck、去掉 ccusage、新增会话浏览）· @byzer
+文档修订：2026-11-06 初稿（ClaudeMeter，基于 ccusage）→ 2026-11-09 修订（改名 DevDeck、去掉 ccusage、新增会话浏览）→ 2026-11-11 增补第 12 节 v0.2 Insights 模块 · @byzer
 
 ## 1. 背景与目标
 
@@ -276,4 +276,85 @@ DevDeck/
 - 明细表每天一行，展开看模型拆分；指标卡显示全局数据，导出跟随筛选
 - 全量重建在事务中完成
 
-**待确认**：正式图标（v0.1 先用 Tauri 默认图标）
+正式图标已完成（2026-11-11），见 `docs/progress.md`。
+
+## 12. v0.2 规划：Insights 模块（2026-11-11 确认）
+
+### 12.1 目标
+
+在 DevDeck 中使用 Claude Code 原生的 `/insights`（分析本机近期会话，指出工作中的问题与摩擦点，给出使用建议），并长期保存每次生成的报告。
+
+- **不自行实现分析**：只启动原生命令、读取其产物；DevDeck 不调用模型、不需要账号
+- **先做记录、后做触发**：归档与查看不依赖调用方式，风险低，先交付
+
+### 12.2 已确认的事实（官方文档，2026-11-11 核对）
+
+- `/insights` 生成 HTML 报告：分析本机近期会话（不含其他设备、claude.ai、云端会话），每次最多分析 200 个此前未分析过的会话，跳过过短会话；报告头部显示「已分析数（总数）」
+- 产物位于 `~/.claude/usage-data/`：最新报告 `report.html`、每次运行的带时间戳副本、按会话缓存的分析数据
+- 该目录受 `cleanupPeriodDays` 控制（默认 30 天，启动时清理）→ DevDeck 需要自行归档
+- 分析通过用户自己的 provider / 账号运行，消耗套餐额度或 API token
+- 文档来源：costs.md「Analyze your usage patterns」、commands.md、claude-directory.md、headless.md
+
+**未确认（实现前须本机实测）**
+
+- `claude -p "/insights"` 能否在非交互模式运行（headless.md 列出的 `-p` 可用内置命令不含 `/insights`）
+- `claude "/insights"` 以初始提示启动交互会话时是否自动执行
+- 时间戳副本的命名格式、缓存数据的文件与格式；报告 HTML 是否依赖脚本
+- 结构化结果是否会写入会话日志（有一条未核实的线索：运行后会话中出现过含项目领域、会话数等字段的 JSON）
+
+### 12.3 功能
+
+1. **归档**（I1）
+   - 每次扫描时检查 `<Claude 目录>/usage-data/`，把新出现的报告 HTML 复制到 `<app_data_dir>/insights/`（按内容哈希去重），源文件不改动
+   - 缓存分析数据不读取、不归档（格式未公开）
+2. **查看**（I1）
+   - 新页面「Insights」（日常开发分组）：左侧报告列表（生成时间、已分析 / 总会话数），右侧显示报告
+   - 报告放在禁止脚本的沙箱 iframe 中显示；若报告依赖脚本无法正常显示，改为「用系统浏览器打开归档文件」
+   - 单份删除、全部清除
+3. **触发**（I2）
+   - 方式 B（主）：打开终端窗口执行 `claude "/insights"`，用户可见进度；若初始提示不会自动执行，退化为打开终端并提示用户输入 `/insights`
+   - 方式 A（辅，实测可行才做）：后台执行 `claude -p "/insights"`，完成后自动归档并通知
+   - 触发前确认对话框：说明会消耗额度、会把会话内容发送给模型
+   - `claude` 可执行文件：PATH → `%USERPROFILE%\.localin\claude.exe` → 设置中手动指定
+4. **结构化提取**（v0.2 之后候选）：若确认会话日志或缓存中有稳定的结构化结果，再做「问题 / 建议」条目的跨报告对比
+
+### 12.4 约束与隐私
+
+- 模块**默认关闭**，在设置中由用户主动开启；关闭后不扫描 `usage-data/`、不显示页面
+- 第 10 节「正文不入库、不缓存、不联网」调整为：**DevDeck 自身不联网**；insights 报告（模型对会话的总结）是唯一被归档的会话衍生内容，可随时一键清除；会话正文仍不入库
+- 外部进程：带超时（方式 A 15 分钟）、`CREATE_NO_WINDOW`（方式 A）、退出码与 stderr 上报；同一时刻只允许一个 insights 任务
+- 解析宽松：只依赖「是 HTML 文件 + 文件时间」；「已分析 / 总会话数」解析失败时留空，不影响归档
+
+### 12.5 数据
+
+```sql
+CREATE TABLE insights_report (
+  id INTEGER PRIMARY KEY,
+  sha256 TEXT UNIQUE NOT NULL,       -- 去重
+  source_path TEXT NOT NULL,         -- 原始路径（可能已被 Claude Code 清理）
+  archived_file TEXT NOT NULL,       -- <app_data_dir>/insights/ 下的文件名
+  generated_at TEXT NOT NULL,        -- 源文件修改时间（UTC）
+  sessions_analyzed INTEGER,         -- 从报告头部解析，可空
+  sessions_total INTEGER,
+  bytes INTEGER NOT NULL,
+  archived_at TEXT NOT NULL
+);
+```
+
+配置新增：`insights.enabled`（默认 false）、`insights.claudePath`（可空）。
+
+### 12.6 里程碑与验收
+
+- **I0 实测**（前置）：用户手动运行一次 `/insights`；记录 `usage-data/` 实际文件结构、报告是否依赖脚本；经用户同意后实测 `claude -p "/insights"` 与 `claude "/insights"`。结论写入 `docs/progress.md`，并据此修订本节
+- **I1 归档与查看**：验收——开启模块后，已有报告被归档并可查看；删除 `usage-data/` 后归档仍可查看；关闭模块后不再扫描；一键清除后归档目录与表为空
+- **I2 触发**：验收——从 DevDeck 触发后，新报告在完成后 1 分钟内出现在列表中；`claude` 不存在、超时、非零退出时显示明确错误，不崩溃
+
+### 12.7 风险
+
+| 风险 | 影响 | 应对 |
+| --- | --- | --- |
+| `-p` 模式不支持 `/insights` | 无法后台一键生成 | 以方式 B（终端）为主 |
+| 报告格式 / 文件命名随版本变化 | 解析失败 | 只归档原文件，不依赖内部结构 |
+| 报告含项目名与工作内容摘要 | 隐私 | 默认关闭、可一键清除、不联网 |
+| 每次运行消耗额度 | 费用 | 触发前确认；只在用户操作时触发，不做定时触发 |
+
