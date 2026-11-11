@@ -1,0 +1,15 @@
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  background: #ffffff;
+}
+
+html[data-theme="dark"] body {
+  background: #18181c;
+}

@@ -1,0 +1,279 @@
+# DevDeck 实现方案（v0.1 版本）
+
+文档修订：2026-11-06 初稿（ClaudeMeter，基于 ccusage）→ 2026-11-09 修订（改名 DevDeck、去掉 ccusage、新增会话浏览）· @byzer
+
+## 1. 背景与目标
+
+DevDeck 是运行在 Windows 本机的桌面工具箱，托盘常驻，以模块承载功能。v0.1 交付「日常开发」主线下的两个模块，都基于本机 Claude Code 日志（`~/.claude/projects/**/*.jsonl`）：
+
+1. **每日用量**：按天展示 token 用量（input / output / cache 写入 / cache 读取 / 合计）与估算费用（USD），支持按模型拆分、按项目筛选、自定义日期范围
+2. **会话浏览**：查看 Claude Code 历史会话列表，以及会话内的对话记录
+
+另外：托盘常驻，悬停显示今日用量；完全离线可用。
+
+**非目标（v0.1 不做）**
+
+- Claude.ai 网页 / 桌面聊天的用量（本地无数据）
+- 组织级 Admin API 用量、多机汇总、局域网访问
+- 超额告警、预算管理（v2 候选）
+- 运行时依赖 ccusage 或 Node（ccusage 只在开发期作为 token 数的对照工具）
+- 会话全文搜索（v0.2，SQLite FTS5）；会话的编辑、删除、导出
+- 人民币显示
+
+## 2. 技术选型
+
+| 层 | 选型 | 说明 |
+| --- | --- | --- |
+| 桌面框架 | Tauri 2.x | 原生窗口 + 托盘 + 安装包；依赖 WebView2 |
+| 前端 | Vue 3 + TypeScript + Vite | 组合式 API；状态管理 Pinia；路由 vue-router（hash 模式） |
+| UI 组件 | Naive UI | 暗色主题开箱即用 |
+| 图表 | ECharts 5（vue-echarts） | 堆叠柱状图 + 折线（M3 引入） |
+| Markdown | markdown-it + highlight.js（M4 引入） | 渲染对话内容 |
+| 后端 | Rust（Tauri commands） | 解析 jsonl、建索引、读写缓存、系统集成 |
+| 本地缓存 | SQLite（rusqlite，bundled 特性） | 用量明细、会话索引、文件读取游标 |
+| Tauri 插件 | single-instance、autostart、store、dialog | 官方插件，按里程碑引入 |
+
+## 3. 总体架构与数据流
+
+```text
+~/.claude/projects/**/*.jsonl
+        │  （增量读取：按文件记录已读字节偏移）
+        ▼
+  Scanner ──► JsonlParser ──► UsageRecord（去重后）──► usage_event 表 ──► 按日聚合查询
+                         └──► SessionMeta ────────────► sessions 表
+                                                        ▲
+  前端 ◄── Tauri commands（只读 SQLite）                 │
+  会话详情 ◄── 按需流式读取单个 jsonl，构建消息树 ─────────┘（正文不入库）
+```
+
+- 前端只读 SQLite；扫描由调度器在后台执行，完成后 emit 事件通知前端
+- 一次扫描同时产出用量记录和会话索引，避免重复读取日志（本机实测 736 个文件、1.1GB）
+- 会话正文不入库：打开会话时按需读取对应文件，保护隐私也控制数据库体积
+
+## 4. 日志格式要点（2026-11-09 本机实测）
+
+- 文件位置：`projects/<编码路径>/<sessionId>.jsonl`；子代理在 `<sessionId>/subagents/*.jsonl`；超长工具输出在 `<sessionId>/tool-results/`
+- **目录名不可还原为路径**（中文等字符被替换为 `-`），项目真实路径取记录中的 `cwd` 字段
+- 记录 `type` 约 20 种：`user`、`assistant`、`system`、`attachment`、`ai-title`、`last-prompt`、`api-request*`、`file-history-*`、`queue-operation`、`cost-state` 等；格式无官方文档，可能随版本变化
+- 消息通过 `uuid` / `parentUuid` 组成树，回退、编辑会产生分叉；`isSidechain`、`isCompactSummary`、`isMeta` 标记特殊消息
+- **用量去重**：一次 API 响应会拆成多行写入，每行携带相同 `usage`。实测 60,193 行去重后 27,833 条，必须按 `(message.id, requestId)` 去重
+- `usage.cache_creation` 区分 `ephemeral_5m_input_tokens` 与 `ephemeral_1h_input_tokens`，两者单价不同
+- 存在 `speed` 字段（疑似 fast mode）与 `<synthetic>` 模型（非真实请求，不计费）
+
+## 5. 数据层设计
+
+### 5.1 解析器
+
+- 逐行宽松解析（`serde_json::Value`），单行失败只记日志不中断；未知 `type` 与字段一律忽略
+- 用量记录：`type == "assistant"` 且有 `message.usage`；跳过 `<synthetic>`；按 `(message.id, requestId)` 去重（跨文件也去重，主键约束保证）
+- 日期：按配置时区（默认系统时区）把 `timestamp` 换算成本地日期
+- 会话元数据：sessionId、cwd（取首个非空值）、gitBranch、标题（最后一条 `ai-title`）、首条用户提示、最后提示（`last-prompt`）、起止时间、消息数、模型集合、是否含子代理
+- 测试：从本机日志抽取样本并**脱敏**后存入 `src-tauri/tests/fixtures/`，覆盖去重、分叉、压缩、子代理、坏行
+
+### 5.2 价格表
+
+- 内置 `pricing.json`：按模型给出 input、output、cache 5m 写、cache 1h 写、cache 读单价（USD / 百万 token），记录来源 URL 与核对日期
+- 实现时从 Anthropic 官方价格页核对，**不凭记忆填写**；未知模型费用记为 0，界面标注「价格未知」
+- 设置页可查看，并按模型覆盖单价；界面所有费用均标注「估算」
+
+### 5.3 SQLite 表
+
+```sql
+CREATE TABLE file_cursor (            -- 增量读取游标
+  path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGER, session_id TEXT
+);
+CREATE TABLE usage_event (            -- 去重后的单次请求用量
+  message_id TEXT NOT NULL, request_id TEXT NOT NULL,
+  session_id TEXT NOT NULL, project TEXT NOT NULL, model TEXT NOT NULL,
+  ts TEXT NOT NULL, date TEXT NOT NULL,           -- date 为配置时区下的 YYYY-MM-DD
+  input_tokens INTEGER, output_tokens INTEGER,
+  cache_write_5m_tokens INTEGER, cache_write_1h_tokens INTEGER, cache_read_tokens INTEGER,
+  speed TEXT,
+  PRIMARY KEY (message_id, request_id)
+);
+CREATE INDEX idx_usage_date ON usage_event(date);
+CREATE TABLE sessions (
+  session_id TEXT PRIMARY KEY, file_path TEXT, project TEXT, git_branch TEXT,
+  title TEXT, first_prompt TEXT, last_prompt TEXT,
+  started_at TEXT, ended_at TEXT, message_count INTEGER, models TEXT, has_subagents INTEGER
+);
+CREATE TABLE scan_log (id INTEGER PRIMARY KEY, started_at TEXT, finished_at TEXT,
+  files INTEGER, ok INTEGER, error TEXT);
+```
+
+- 费用在查询时用价格表计算（价格变更无需重扫）
+- 数据库位置：`%APPDATA%\com.byzer.devdeck\devdeck.db`（Tauri app_data_dir）
+
+### 5.4 刷新策略
+
+| 场景 | 做法 |
+| --- | --- |
+| 首次启动 / 手动「全量重建」 | 后台全量扫描，界面显示进度；在事务中写入新数据，成功后替换，失败保留旧数据 |
+| 定时刷新（默认 5 分钟） | 对比文件 size/mtime，只读新增字节；文件变小视为被重写，重读该文件 |
+| 修改时区 / 日志目录 | 全量重建 |
+
+## 6. 功能需求
+
+### 6.1 每日用量页
+
+- **指标卡**（4 张，始终为全局数据，不受筛选影响）：今日 tokens、今日费用、近 7 天费用、近 30 天费用；与上一周期对比涨跌百分比
+- **筛选栏**：日期范围（今天 / 7 天 / 30 天 / 本月 / 自定义）、项目多选、模型多选、刷新按钮、最后刷新时间
+- **趋势图**：每日堆叠柱状图（input / output / cache 写入 / cache 读取），右轴折线为每日费用；可切换「按 token 类型」/「按模型」堆叠
+- **明细表**：每天一行汇总，「模型」列显示模型数；行展开显示按模型拆分；日期倒序；导出 CSV（跟随当前筛选）
+- 数字格式：千分位；≥100 万显示为 `1.23M`，悬停显示精确值
+
+### 6.2 会话浏览页
+
+- **会话列表**：按项目筛选、日期范围、标题/首条提示关键字搜索；时间倒序；显示标题、首条提示、起止时间、消息数、主要模型、分支、会话 token 与估算费用
+- **对话详情**：
+  - 显示主线：从最后的叶子节点沿 `parentUuid` 回溯，不展示其他分支
+  - 用户与助手文本渲染 Markdown 与代码高亮
+  - thinking、工具调用、工具结果默认折叠，长输出截断并可展开
+  - attachment、system、meta 默认隐藏，提供开关显示
+  - 压缩点显示分隔标记与摘要
+  - 子代理：在对应工具调用处提供入口，单独查看其对话
+- **操作**（只读）：复制 `claude --resume <sessionId>`、在资源管理器中打开项目目录
+
+### 6.3 设置页
+
+- Claude 日志目录（默认自动检测，可追加多个）
+- 时区（默认系统时区）
+- 自动刷新间隔（1 / 5 / 15 / 30 分钟、关闭）
+- 价格表查看与覆盖
+- 开机自启、关闭窗口时最小化到托盘
+- 主题：跟随系统 / 浅色 / 深色
+- 「全量重建缓存」按钮（二次确认）
+
+### 6.4 托盘
+
+- 悬停提示：`今日 1.23M tokens · $4.56`
+- 右键菜单：打开主窗口、立即刷新、开机自启（勾选）、退出
+- 左键单击：显示/隐藏主窗口
+
+### 6.5 异常状态
+
+| 情况 | 表现 |
+| --- | --- |
+| 未找到 Claude 日志目录 | 空态提示，展示已检查的路径列表，引导去设置页 |
+| 单行解析失败 | 跳过并计数，关于页 / 日志中可见 |
+| 扫描整体失败 | 保留旧数据，顶部黄色横幅显示错误摘要 |
+| 会话文件已被删除 | 详情页提示文件不存在，列表下次扫描时移除 |
+
+## 7. 工程结构与接口
+
+### 7.1 目录结构
+
+```text
+DevDeck/
+├─ src/                          # Vue 3 前端
+│  ├─ app/                       # 路由、布局、主题
+│  ├─ modules/
+│  │  ├─ usage/                  # 每日用量模块
+│  │  └─ sessions/               # 会话浏览模块
+│  ├─ pages/                     # Settings.vue / About.vue
+│  └─ shared/                    # 格式化、通用组件
+├─ src-tauri/
+│  ├─ src/
+│  │  ├─ lib.rs / main.rs
+│  │  ├─ tray.rs / window.rs
+│  │  ├─ claude_log/             # 日志定位、扫描、jsonl 解析（两个模块共用）
+│  │  ├─ modules/usage/          # 用量查询、价格计算、commands
+│  │  ├─ modules/sessions/       # 会话索引查询、详情读取、commands
+│  │  ├─ db/                     # SQLite 连接与迁移
+│  │  ├─ scheduler.rs
+│  │  └─ config.rs
+│  ├─ resources/pricing.json
+│  ├─ tests/fixtures/            # 脱敏后的 jsonl 样本
+│  ├─ capabilities/default.json
+│  └─ tauri.conf.json
+└─ docs/
+```
+
+### 7.2 Tauri commands
+
+| 命令 | 入参 | 返回 | 说明 |
+| --- | --- | --- | --- |
+| `get_daily_usage` | since, until, projects?, models? | `DailyUsage[]` | 按日按模型聚合 |
+| `get_summary` | — | 今日 / 7 天 / 30 天汇总 | 指标卡与托盘 |
+| `list_projects` / `list_models` | — | `string[]` | 筛选项 |
+| `export_csv` | since, until, projects?, models? | 文件路径 | 弹出保存对话框 |
+| `list_sessions` | project?, since?, until?, keyword?, offset, limit | `SessionMeta[]` + 总数 | 分页 |
+| `get_session` | sessionId | `SessionDetail` | 主线消息列表 |
+| `get_subagent_session` | sessionId, agentFile | `SessionDetail` | 子代理对话 |
+| `refresh` | mode: `incremental` \| `full` | `ScanResult` | 触发扫描 |
+| `get_config` / `set_config` | `AppConfig` | `AppConfig` | 持久化到 store |
+
+扫描完成后 emit `data://updated`；失败 emit `data://error`；全量扫描期间 emit `data://progress`。
+
+### 7.3 配置结构
+
+```json
+{
+  "claudeDirs": [],
+  "timezone": null,
+  "refreshIntervalMin": 5,
+  "pricingOverrides": {},
+  "autostart": false,
+  "closeToTray": true,
+  "theme": "system"
+}
+```
+
+`timezone` 为 null 表示跟随系统。
+
+## 8. Windows 细节与打包
+
+- 日志目录自动检测顺序：`CLAUDE_CONFIG_DIR` → `%USERPROFILE%\.claude` → `%USERPROFILE%\.config\claude`
+- 路径含中文、空格时正常工作；文件按 UTF-8 读取，非法字节替换而非报错
+- 读取日志时不加独占锁，允许 Claude Code 同时写入；末尾不完整的行留到下次读取
+- 单实例：重复启动时激活已有窗口
+- WebView2：安装包用 `embedBootstrapper` 或 `offlineInstaller`，保证离线机器可装
+- 代码签名：v0.1 不签名，README 说明 SmartScreen 提示
+- 产物：NSIS 安装包与便携版 zip
+- 构建环境：Windows 10/11 x64、Rust stable（MSVC 工具链）、Node 20+、pnpm；`pnpm tauri build`
+
+## 9. 里程碑与验收标准
+
+1. **M1 工程骨架**：Tauri 2 + Vue 3 + TS 初始化，路由与布局、主题切换、单实例、托盘最小可用
+   - 验收：`pnpm tauri dev` 启动出窗口；托盘可显示/隐藏窗口、退出；关闭窗口隐藏到托盘；重复启动激活已有窗口
+2. **M2 日志解析与索引**：日志定位、增量扫描、解析器、去重、SQLite、会话索引、价格表
+   - 验收：fixture 测试覆盖去重、分叉、压缩、子代理、坏行；同一日期范围的每日 token 数与 `npx ccusage daily --json` 一致
+3. **M3 每日用量页**：指标卡、筛选栏、趋势图、明细表、CSV 导出
+   - 验收：近 30 天数据 1 秒内渲染；筛选后合计正确
+4. **M4 会话浏览**：会话列表、对话详情、子代理查看、复制 resume 命令
+   - 验收：本机最大的会话文件打开时间 ≤ 2 秒；主线消息顺序与 Claude Code `--resume` 时看到的一致
+5. **M5 设置与自动刷新**：设置页全部配置项、定时增量刷新、开机自启、托盘今日用量、异常状态
+   - 验收：断网可用；日志目录配置错误时显示引导而不崩溃
+6. **M6 打包分发**：NSIS 安装包、便携版、README
+   - 验收：在一台未装 Node、无网络的干净 Windows 10/11 上安装后正常显示数据
+
+**整体验收清单**
+
+- [ ] 冷启动到看到数据 ≤ 2 秒（有缓存时）
+- [ ] 增量刷新期间界面不卡顿
+- [ ] 内存占用常驻 ≤ 150MB
+- [ ] 所有 Rust 单元测试与 fixture 测试通过
+- [ ] 中文路径、带空格路径下正常工作
+
+## 10. 风险
+
+| 风险 | 影响 | 应对 |
+| --- | --- | --- |
+| Claude Code 日志格式变化 | 统计或会话展示偏差 | 宽松解析；未知类型忽略；fixture 测试；关于页显示解析失败行数 |
+| 价格表过期 | 费用估算不准 | 标注「估算」；记录核对日期；设置页可覆盖 |
+| 去重口径与 ccusage 不一致 | token 数对不上 | M2 用 ccusage 对照验证，差异记录在 progress.md |
+| 日志量大时首次全量扫描慢 | 首次启动等待 | 后台扫描并显示进度；之后只增量读取 |
+| 会话正文含敏感信息 | 泄露 | 正文不入库、不缓存、不联网 |
+
+## 11. 已确认的决策（2026-11-09）
+
+- 产品名 DevDeck，工程、标识（`com.byzer.devdeck`）、数据目录统一
+- 默认时区跟随系统
+- UI 组件库 Naive UI
+- 费用只显示 USD
+- 不依赖 ccusage，自行解析 jsonl
+- 会话浏览纳入 v0.1（M4），只读
+- 明细表每天一行，展开看模型拆分；指标卡显示全局数据，导出跟随筛选
+- 全量重建在事务中完成
+
+**待确认**：正式图标（v0.1 先用 Tauri 默认图标）
