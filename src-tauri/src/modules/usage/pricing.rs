@@ -65,6 +65,27 @@ impl PricingTable {
         serde_json::from_str(BUILTIN).expect("内置 pricing.json 格式错误")
     }
 
+    /// 应用用户覆盖：覆盖的单价不分长上下文档位（统一一档）；fast / 地域倍率沿用内置值
+    pub fn with_overrides(&self, overrides: &std::collections::BTreeMap<String, Rates>) -> Self {
+        let mut t = self.clone();
+        for (model, rates) in overrides {
+            let key = normalize_model(model);
+            match t.models.get_mut(&key) {
+                Some(p) => {
+                    p.base = *rates;
+                    p.long_context = None;
+                }
+                None => {
+                    t.models.insert(
+                        key,
+                        ModelPrice { base: *rates, long_context: None, fast_multiplier: None, us_geo_multiplier: None },
+                    );
+                }
+            }
+        }
+        t
+    }
+
     pub fn find(&self, model: &str) -> Option<&ModelPrice> {
         self.models.get(&normalize_model(model))
     }
@@ -176,6 +197,29 @@ mod tests {
         let mut o = group("claude-opus-5-5");
         o.long_context = true;
         assert!((t.cost(&o).unwrap() - 37.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn overrides_replace_or_add_models() {
+        let base = PricingTable::builtin();
+        let r = Rates { input: 1.0, cache_write_5m: 0.0, cache_write_1h: 0.0, cache_read: 0.0, output: 0.0 };
+        let mut o = std::collections::BTreeMap::new();
+        o.insert("claude-haiku-5-5".to_string(), r);
+        o.insert("Gpt-X".to_string(), r);
+        let t = base.with_overrides(&o);
+
+        let mut h = group("claude-haiku-5-5");
+        h.long_context = true;
+        assert!((t.cost(&h).unwrap() - 1.0).abs() < 1e-9, "覆盖后不再分档");
+        assert!((t.cost(&group("gpt-x")).unwrap() - 1.0).abs() < 1e-9, "新增模型，名称归一化");
+        // 原表不受影响
+        assert!(base.cost(&group("gpt-x")).is_none());
+        // fast 倍率沿用内置
+        let mut f = group("claude-opus-5-5");
+        f.speed = Some("fast".into());
+        let mut o2 = std::collections::BTreeMap::new();
+        o2.insert("claude-opus-5-5".to_string(), r);
+        assert!((base.with_overrides(&o2).cost(&f).unwrap() - 2.0).abs() < 1e-9);
     }
 
     #[test]

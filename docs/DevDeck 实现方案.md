@@ -31,7 +31,7 @@ DevDeck 是运行在 Windows 本机的桌面工具箱，托盘常驻，以模块
 | Markdown | markdown-it + highlight.js（M4 引入） | 渲染对话内容 |
 | 后端 | Rust（Tauri commands） | 解析 jsonl、建索引、读写缓存、系统集成 |
 | 本地缓存 | SQLite（rusqlite，bundled 特性） | 用量明细、会话索引、文件读取游标 |
-| Tauri 插件 | single-instance、autostart、store、dialog | 官方插件，按里程碑引入 |
+| Tauri 插件 | single-instance、autostart、dialog | 官方插件；配置由 Rust 读写 config.json，不用 store 插件 |
 
 ## 3. 总体架构与数据流
 

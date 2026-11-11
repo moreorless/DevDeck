@@ -3,18 +3,19 @@
 use std::sync::atomic::Ordering;
 
 use anyhow::{Result, anyhow};
-use chrono::{Local, Utc};
+use chrono::Utc;
 use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{
     claude_log::{
-        locate::{candidate_dirs, existing_dirs, list_log_files},
+        locate::{existing_dirs, list_log_files},
         scanner::{self, ScanMode, ScanStats, fmt_ts},
     },
     db,
     state::{AppState, err},
+    tray, with_tz,
 };
 
 pub const EVT_UPDATED: &str = "data://updated";
@@ -47,6 +48,7 @@ pub fn run_scan(app: &AppHandle, mode: Option<ScanMode>) -> Result<ScanStats> {
     match &result {
         Ok(stats) => {
             let _ = app.emit(EVT_UPDATED, stats);
+            tray::refresh_tooltip(app);
         }
         Err(e) => {
             let _ = app.emit(EVT_ERROR, err(anyhow!("{e:#}")));
@@ -77,7 +79,8 @@ fn scan_inner(app: &AppHandle, state: &AppState, mode: Option<ScanMode>) -> Resu
     let log_id = conn.last_insert_rowid();
 
     let result = (|| {
-        let candidates = candidate_dirs();
+        let cfg = state.config();
+        let candidates = cfg.candidate_dirs();
         let dirs = existing_dirs(&candidates);
         if dirs.is_empty() {
             let checked: Vec<String> = candidates.iter().map(|d| d.display().to_string()).collect();
@@ -92,7 +95,7 @@ fn scan_inner(app: &AppHandle, state: &AppState, mode: Option<ScanMode>) -> Resu
                 let _ = app.emit(EVT_PROGRESS, Progress { done, total });
             }
         };
-        let stats = scanner::scan(&mut conn, &files, mode, &Local, &mut progress)?;
+        let stats = with_tz!(cfg.tz(), |tz| scanner::scan(&mut conn, &files, mode, tz, &mut progress))?;
         if mode == ScanMode::Full {
             scanner::save_index_version(&conn)?;
         }
@@ -117,6 +120,22 @@ pub fn spawn_startup_scan(app: AppHandle) {
     std::thread::spawn(move || {
         if let Err(e) = run_scan(&app, None) {
             eprintln!("启动扫描失败: {e:#}");
+        }
+    });
+}
+
+/// 后台执行一次扫描；若正在扫描则等它结束后再执行（最多等 10 分钟），保证本次请求不丢
+pub fn spawn_scan(app: AppHandle, mode: ScanMode) {
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        for _ in 0..1200 {
+            if !state.scanning.load(Ordering::SeqCst) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        if let Err(e) = run_scan(&app, Some(mode)) {
+            eprintln!("后台扫描失败: {e:#}");
         }
     });
 }
@@ -175,7 +194,7 @@ pub fn get_scan_status(state: State<'_, AppState>) -> Result<ScanStatus, String>
         .optional()
         .map_err(|e| e.to_string())?;
     let count = |sql: &str| conn.query_row(sql, [], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string());
-    let candidates = candidate_dirs();
+    let candidates = state.config().candidate_dirs();
     Ok(ScanStatus {
         scanning: state.scanning.load(Ordering::SeqCst),
         last_scan,
@@ -183,6 +202,6 @@ pub fn get_scan_status(state: State<'_, AppState>) -> Result<ScanStatus, String>
         checked_dirs: candidates.iter().map(|d| d.display().to_string()).collect(),
         session_count: count("SELECT COUNT(*) FROM sessions WHERE prompt_count > 0")?,
         usage_count: count("SELECT COUNT(*) FROM usage_event")?,
-        pricing_checked_at: state.pricing.checked_at.clone(),
+        pricing_checked_at: state.pricing().checked_at.clone(),
     })
 }

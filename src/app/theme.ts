@@ -4,9 +4,10 @@ import { darkTheme, useOsTheme, type GlobalTheme } from "naive-ui";
 
 export type ThemeMode = "system" | "light" | "dark";
 
+/** localStorage 只做首屏缓存（避免启动闪烁），配置以 config.json 为准 */
 const STORAGE_KEY = "devdeck.theme";
 
-function loadMode(): ThemeMode {
+function loadCached(): ThemeMode {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v === "light" || v === "dark" || v === "system") return v;
@@ -16,11 +17,8 @@ function loadMode(): ThemeMode {
   return "system";
 }
 
-/**
- * 主题状态。M1 暂存在 localStorage；M5 接入 tauri store 后迁移到统一配置。
- */
 export const useThemeStore = defineStore("theme", () => {
-  const mode = ref<ThemeMode>(loadMode());
+  const mode = ref<ThemeMode>(loadCached());
   const osTheme = useOsTheme();
 
   const isDark = computed(() =>

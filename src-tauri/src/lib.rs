@@ -1,7 +1,11 @@
 mod claude_log;
+mod config;
 mod db;
 mod modules;
 mod scan_service;
+mod scheduler;
+mod settings;
+mod shared_format;
 mod state;
 mod tray;
 mod window;
@@ -13,6 +17,9 @@ use crate::{
     state::AppState,
 };
 
+/// 开机自启时附带的参数：启动后只驻留托盘，不弹出主窗口
+const ARG_MINIMIZED: &str = "--minimized";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -21,11 +28,20 @@ pub fn run() {
             window::show_main(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![ARG_MINIMIZED]),
+        ))
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(AppState::init(&handle)?);
             tray::init(&handle)?;
-            scan_service::spawn_startup_scan(handle);
+            // 主窗口初始隐藏（tauri.conf.json visible=false），非自启场景才显示，避免闪一下
+            if !std::env::args().any(|a| a == ARG_MINIMIZED) {
+                window::show_main(&handle);
+            }
+            scan_service::spawn_startup_scan(handle.clone());
+            scheduler::spawn(handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -41,11 +57,17 @@ pub fn run() {
             sessions::commands::get_session,
             sessions::commands::get_subagent_session,
             sessions::commands::open_project_dir,
+            settings::get_settings,
+            settings::set_config,
+            settings::list_timezones,
+            settings::get_pricing,
+            settings::check_claude_dir,
         ])
         .on_window_event(|win, event| {
-            // 关闭主窗口时隐藏到托盘，真正退出走托盘菜单。M5 接入 closeToTray 配置项
+            // 关闭主窗口：开启「最小化到托盘」时隐藏，否则正常关闭（最后一个窗口关闭即退出）
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if win.label() == window::MAIN {
+                let to_tray = win.app_handle().try_state::<AppState>().is_none_or(|s| s.config().close_to_tray);
+                if win.label() == window::MAIN && to_tray {
                     api.prevent_close();
                     let _ = win.hide();
                 }

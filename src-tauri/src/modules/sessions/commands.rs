@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
-use chrono::Local;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use tauri::State;
@@ -10,11 +9,12 @@ use super::query::{self, SessionPage, SessionQuery};
 use crate::{
     claude_log::transcript::{Item, read_transcript},
     state::{AppState, err},
+    with_tz,
 };
 
 #[tauri::command(async)]
 pub fn list_sessions(state: State<'_, AppState>, query: SessionQuery) -> Result<SessionPage, String> {
-    query::list_sessions(&state.conn(), &state.pricing, &query, &Local).map_err(err)
+    with_tz!(state.tz(), |tz| query::list_sessions(&state.conn(), &state.pricing(), &query, tz)).map_err(err)
 }
 
 #[tauri::command(async)]
