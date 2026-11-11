@@ -4,6 +4,8 @@ import { NInput, NSelect, NDatePicker, NButton, NEmpty, NSpin, NText, NAlert } f
 import { useSessionsStore } from "../store";
 import { parseYmd, ymd } from "../../../shared/date";
 import { fmtTokens, fmtUsd } from "../../../shared/format";
+import { groupedProjectOptions, shortProject } from "../../../shared/projects";
+import RecentProjectChips from "../../../shared/RecentProjectChips.vue";
 
 const store = useSessionsStore();
 
@@ -14,7 +16,7 @@ function onKeyword(v: string) {
   timer = window.setTimeout(() => store.loadList(), 300);
 }
 
-const projectOptions = computed(() => store.projects.map((p) => ({ label: p, value: p })));
+const projectOptions = computed(() => groupedProjectOptions(store.projects, store.recentProjects));
 
 const pickerValue = computed<[number, number] | null>(() =>
   store.range ? [parseYmd(store.range[0]).getTime(), parseYmd(store.range[1]).getTime()] : null,
@@ -30,9 +32,6 @@ function fmtWhen(s: string | null) {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-
-/** 项目路径只显示最后一段 */
-const shortProject = (p: string | null) => (p ? p.split(/[\\/]/).filter(Boolean).pop() ?? p : "-");
 </script>
 
 <template>
@@ -47,6 +46,11 @@ const shortProject = (p: string | null) => (p ? p.split(/[\\/]/).filter(Boolean)
         filterable
         placeholder="全部项目"
         @update:value="(v: string | null) => ((store.project = v), store.loadList())"
+      />
+      <RecentProjectChips
+        :recent="store.recentProjects"
+        :selected="store.project ? [store.project] : []"
+        @toggle="store.toggleProject"
       />
       <n-date-picker type="daterange" size="small" clearable :value="pickerValue" @update:value="onPick" />
       <n-text depth="3" class="count">共 {{ store.total.toLocaleString() }} 个会话</n-text>

@@ -37,6 +37,7 @@ pub fn run() {
             usage::commands::list_models,
             usage::commands::export_csv,
             sessions::commands::list_sessions,
+            sessions::commands::list_recent_projects,
             sessions::commands::get_session,
             sessions::commands::get_subagent_session,
             sessions::commands::open_project_dir,

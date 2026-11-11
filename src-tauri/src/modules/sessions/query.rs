@@ -140,6 +140,28 @@ pub fn list_sessions<Tz: TimeZone>(
     Ok(SessionPage { total, items })
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentProject {
+    pub project: String,
+    pub last_active_at: String,
+    pub session_count: i64,
+}
+
+/// 最近活跃的项目：按项目下会话的最后活动时间倒序
+pub fn recent_projects(conn: &Connection, limit: u32) -> Result<Vec<RecentProject>> {
+    let mut stmt = conn.prepare(
+        "SELECT project, MAX(ended_at) AS last, COUNT(*) FROM sessions
+         WHERE project IS NOT NULL AND prompt_count > 0 AND ended_at IS NOT NULL
+         GROUP BY project ORDER BY last DESC LIMIT ?1",
+    )?;
+    Ok(stmt
+        .query_map([limit.clamp(1, 50)], |r| {
+            Ok(RecentProject { project: r.get(0)?, last_active_at: r.get(1)?, session_count: r.get(2)? })
+        })?
+        .collect::<Result<_, _>>()?)
+}
+
 fn local_midnight_utc<Tz: TimeZone>(d: NaiveDate, tz: &Tz) -> String {
     let naive = d.and_hms_opt(0, 0, 0).expect("合法时间");
     let utc = tz
@@ -172,6 +194,16 @@ mod tests {
         assert!(a.priced);
         assert!((a.cost_usd - (0.003748 + 0.0003 + 0.07525)).abs() < 1e-12);
         assert!(!page.items[0].priced);
+    }
+
+    #[test]
+    fn recent_projects_by_last_activity() {
+        let (_t, _d, conn) = scanned_db();
+        let r = recent_projects(&conn, 5).unwrap();
+        let names: Vec<&str> = r.iter().map(|p| p.project.as_str()).collect();
+        assert_eq!(names, vec![r"D:\other", r"C:\demo\proj"], "sess-b（11-03）比 sess-a（11-02）更近");
+        assert_eq!(r[0].session_count, 1);
+        assert_eq!(recent_projects(&conn, 1).unwrap().len(), 1);
     }
 
     #[test]

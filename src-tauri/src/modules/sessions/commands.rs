@@ -17,6 +17,11 @@ pub fn list_sessions(state: State<'_, AppState>, query: SessionQuery) -> Result<
     query::list_sessions(&state.conn(), &state.pricing, &query, &Local).map_err(err)
 }
 
+#[tauri::command(async)]
+pub fn list_recent_projects(state: State<'_, AppState>, limit: u32) -> Result<Vec<query::RecentProject>, String> {
+    query::recent_projects(&state.conn(), limit).map_err(err)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDetail {

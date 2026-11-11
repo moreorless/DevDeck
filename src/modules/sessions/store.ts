@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { onDataEvents } from "../../shared/data";
 import { listProjects } from "../usage/api";
+import { listRecentProjects, type RecentProject } from "../../shared/projects";
 import {
   getSession,
   getSubagentSession,
@@ -22,6 +23,7 @@ export const useSessionsStore = defineStore("sessions", () => {
   const listLoading = ref(false);
   const listError = ref<string | null>(null);
   const projects = ref<string[]>([]);
+  const recentProjects = ref<RecentProject[]>([]);
 
   // 详情：栈底是主会话，之上是逐层打开的子代理
   const selectedId = ref<string | null>(null);
@@ -103,10 +105,27 @@ export const useSessionsStore = defineStore("sessions", () => {
     if (!listening) {
       listening = true;
       // 扫描完成后刷新列表；正在查看的详情不自动重载，避免阅读位置跳动
-      await onDataEvents({ updated: () => loadList() });
+      await onDataEvents({
+        updated: () => {
+          loadOptions();
+          loadList();
+        },
+      });
     }
-    projects.value = await listProjects().catch(() => []);
+    await loadOptions();
     await loadList();
+  }
+
+  async function loadOptions() {
+    const [p, r] = await Promise.all([listProjects().catch(() => []), listRecentProjects().catch(() => [])]);
+    projects.value = p;
+    recentProjects.value = r;
+  }
+
+  /** 快捷标签：单选，再点一次取消 */
+  function toggleProject(p: string) {
+    project.value = project.value === p ? null : p;
+    loadList();
   }
 
   return {
@@ -118,6 +137,8 @@ export const useSessionsStore = defineStore("sessions", () => {
     listLoading,
     listError,
     projects,
+    recentProjects,
+    toggleProject,
     selectedId,
     selected,
     stack,

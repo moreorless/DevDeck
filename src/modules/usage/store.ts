@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { save } from "@tauri-apps/plugin-dialog";
 import { addDays, today, ymd } from "../../shared/date";
 import { getScanStatus, onDataEvents, refresh as runRefresh, type ScanStatus } from "../../shared/data";
+import { listRecentProjects, type RecentProject } from "../../shared/projects";
 import {
   exportCsv,
   getDailyUsage,
@@ -45,6 +46,7 @@ export const useUsageStore = defineStore("usage", () => {
   /** 全部项目与模型（筛选项，也用于固定模型颜色） */
   const allProjects = ref<string[]>([]);
   const allModels = ref<string[]>([]);
+  const recentProjects = ref<RecentProject[]>([]);
 
   const status = ref<ScanStatus | null>(null);
   const progress = ref<{ done: number; total: number } | null>(null);
@@ -64,9 +66,10 @@ export const useUsageStore = defineStore("usage", () => {
   const modelOrder = ref<string[]>([]);
 
   async function loadOptions() {
-    const [p, m] = await Promise.all([listProjects(), listModels()]);
+    const [p, m, r] = await Promise.all([listProjects(), listModels(), listRecentProjects()]);
     allProjects.value = p;
     allModels.value = m;
+    recentProjects.value = r;
     // 剔除已不存在的选项，避免筛选落空
     projects.value = projects.value.filter((x) => p.includes(x));
     models.value = models.value.filter((x) => m.includes(x));
@@ -145,6 +148,10 @@ export const useUsageStore = defineStore("usage", () => {
     loadData();
   }
 
+  function toggleProject(p: string) {
+    setProjects(projects.value.includes(p) ? projects.value.filter((x) => x !== p) : [...projects.value, p]);
+  }
+
   function setModels(v: string[]) {
     models.value = v;
     loadData();
@@ -183,6 +190,8 @@ export const useUsageStore = defineStore("usage", () => {
     summary,
     allProjects,
     allModels,
+    recentProjects,
+    toggleProject,
     modelOrder,
     status,
     progress,

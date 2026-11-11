@@ -3,6 +3,8 @@ import { computed } from "vue";
 import { NSpace, NRadioGroup, NRadioButton, NDatePicker, NSelect, NButton, NText } from "naive-ui";
 import { useUsageStore, type RangePreset } from "../store";
 import { parseYmd, ymd } from "../../../shared/date";
+import { groupedProjectOptions } from "../../../shared/projects";
+import RecentProjectChips from "../../../shared/RecentProjectChips.vue";
 
 const store = useUsageStore();
 
@@ -22,7 +24,7 @@ function onPick(v: [number, number] | null) {
   if (v) store.setRange([ymd(new Date(v[0])), ymd(new Date(v[1]))]);
 }
 
-const projectOptions = computed(() => store.allProjects.map((p) => ({ label: p, value: p })));
+const projectOptions = computed(() => groupedProjectOptions(store.allProjects, store.recentProjects));
 const modelOptions = computed(() => store.allModels.map((m) => ({ label: m, value: m })));
 
 const lastRefresh = computed(() => {
@@ -32,6 +34,7 @@ const lastRefresh = computed(() => {
 </script>
 
 <template>
+  <div>
   <n-space align="center" :size="[12, 8]" class="bar">
     <n-radio-group :value="store.preset" size="small" @update:value="store.setPreset">
       <n-radio-button v-for="p in presets" :key="p.value" :value="p.value">{{ p.label }}</n-radio-button>
@@ -71,4 +74,11 @@ const lastRefresh = computed(() => {
     <n-button size="small" :loading="store.refreshing || store.status?.scanning" @click="store.refresh">刷新</n-button>
     <n-text depth="3" style="font-size: 12px">最后刷新：{{ lastRefresh }}</n-text>
   </n-space>
+  <RecentProjectChips
+    :recent="store.recentProjects"
+    :selected="store.projects"
+    style="margin-top: 8px"
+    @toggle="store.toggleProject"
+  />
+  </div>
 </template>
