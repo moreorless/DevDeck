@@ -84,5 +84,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 1 {
         conn.execute_batch(&format!("BEGIN;{SCHEMA_V1}PRAGMA user_version = 1;COMMIT;"))?;
     }
+    if version < 2 {
+        conn.execute_batch(
+            "BEGIN;CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);PRAGMA user_version = 2;COMMIT;",
+        )?;
+    }
     Ok(())
 }

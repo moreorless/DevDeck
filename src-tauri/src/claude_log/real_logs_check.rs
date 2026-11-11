@@ -35,6 +35,33 @@ fn real_logs() {
     }
 }
 
+/// 本机最大的几个会话文件：读取主线耗时与传给前端的 JSON 体积
+#[test]
+#[ignore = "依赖本机真实日志"]
+fn real_largest_transcripts() {
+    let mut files: Vec<_> = list_log_files(&existing_dirs(&candidate_dirs()))
+        .into_iter()
+        .filter(|f| !f.is_subagent)
+        .map(|f| (std::fs::metadata(&f.path).map(|m| m.len()).unwrap_or(0), f))
+        .collect();
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    for (size, f) in files.iter().take(3) {
+        let t = Instant::now();
+        let sub = f.path.parent().unwrap().join(&f.session_id).join("subagents");
+        let tr = super::transcript::read_transcript(&f.path, Some(&sub), false).unwrap();
+        let elapsed = t.elapsed();
+        let json = serde_json::to_string(&tr).unwrap();
+        println!(
+            "{} MB → {} 条, JSON {} KB, 坏行 {}, 耗时 {:?}",
+            size / 1024 / 1024,
+            tr.items.len(),
+            json.len() / 1024,
+            tr.bad_lines,
+            elapsed
+        );
+    }
+}
+
 fn daily_totals(conn: &Connection) -> serde_json::Value {
     let mut stmt = conn
         .prepare(

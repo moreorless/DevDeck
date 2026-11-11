@@ -309,8 +309,12 @@ impl SessionRow {
         }
         if let Some(p) = &info.user_prompt {
             self.prompt_count += 1;
-            if self.first_prompt.is_none() {
-                self.first_prompt = Some(p.clone());
+            // 首条提示优先取文字提示：开头的斜杠命令（如 /login）信息量低，遇到文字提示时替换
+            let is_cmd = |s: &str| s.starts_with('/');
+            match &self.first_prompt {
+                None => self.first_prompt = Some(p.clone()),
+                Some(f) if is_cmd(f) && !is_cmd(p) => self.first_prompt = Some(p.clone()),
+                _ => {}
             }
         }
         if info.ai_title.is_some() {
@@ -352,6 +356,26 @@ impl SessionRow {
 /// 数据库中是否已有扫描记录（用于启动时决定全量还是增量）
 pub fn has_any_cursor(conn: &Connection) -> Result<bool> {
     Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM file_cursor)", [], |r| r.get(0))?)
+}
+
+/// 索引版本：解析或索引规则变化时加 1，启动时发现不一致会自动全量重建
+pub const INDEX_VERSION: i64 = 2;
+
+pub fn stored_index_version(conn: &Connection) -> Result<i64> {
+    Ok(conn
+        .query_row("SELECT value FROM meta WHERE key = 'index_version'", [], |r| r.get::<_, String>(0))
+        .optional()?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1))
+}
+
+pub fn save_index_version(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES ('index_version', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [INDEX_VERSION.to_string()],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -529,6 +553,26 @@ mod tests {
         conn.execute("UPDATE usage_event SET output_tokens = 999999 WHERE message_id = 'msg_a1'", []).unwrap();
         scan_utc(&mut conn, &dir, ScanMode::Full);
         assert_eq!(count(&conn, "SELECT output_tokens FROM usage_event WHERE message_id='msg_a1'"), 50);
+    }
+
+    #[test]
+    fn first_prompt_prefers_text_over_slash_command() {
+        let mut s = SessionRow::default();
+        let p = |t: &str| LineInfo { user_prompt: Some(t.into()), ..Default::default() };
+        s.apply(&p("/login"));
+        assert_eq!(s.first_prompt.as_deref(), Some("/login"));
+        s.apply(&p("总结需求"));
+        s.apply(&p("第二个问题"));
+        assert_eq!(s.first_prompt.as_deref(), Some("总结需求"));
+        assert_eq!(s.prompt_count, 3);
+    }
+
+    #[test]
+    fn index_version_roundtrip() {
+        let conn = crate::db::open_in_memory().unwrap();
+        assert_eq!(stored_index_version(&conn).unwrap(), 1);
+        save_index_version(&conn).unwrap();
+        assert_eq!(stored_index_version(&conn).unwrap(), INDEX_VERSION);
     }
 
     #[test]

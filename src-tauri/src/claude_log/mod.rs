@@ -3,6 +3,7 @@
 pub mod locate;
 pub mod parser;
 pub mod scanner;
+pub mod transcript;
 
 #[cfg(test)]
 pub mod test_support;

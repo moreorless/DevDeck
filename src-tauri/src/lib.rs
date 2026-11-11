@@ -37,6 +37,9 @@ pub fn run() {
             usage::commands::list_models,
             usage::commands::export_csv,
             sessions::commands::list_sessions,
+            sessions::commands::get_session,
+            sessions::commands::get_subagent_session,
+            sessions::commands::open_project_dir,
         ])
         .on_window_event(|win, event| {
             // 关闭主窗口时隐藏到托盘，真正退出走托盘菜单。M5 接入 closeToTray 配置项

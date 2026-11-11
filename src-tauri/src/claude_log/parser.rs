@@ -146,7 +146,7 @@ fn extract_user_prompt(v: &Value) -> Option<String> {
 }
 
 /// 去掉系统注入的标签块；斜杠命令转成 `/name args`
-fn clean_prompt_text(s: &str) -> Option<String> {
+pub(crate) fn clean_prompt_text(s: &str) -> Option<String> {
     if let Some(name) = tag_inner(s, "command-name") {
         let args = tag_inner(s, "command-args").unwrap_or_default();
         let cmd = format!("{} {}", name.trim(), args.trim());

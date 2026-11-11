@@ -57,7 +57,14 @@ pub fn run_scan(app: &AppHandle, mode: Option<ScanMode>) -> Result<ScanStats> {
 
 fn scan_inner(app: &AppHandle, state: &AppState, mode: Option<ScanMode>) -> Result<ScanStats> {
     let mut conn = db::open(&state.db_path)?;
-    let mode = mode.unwrap_or(if scanner::has_any_cursor(&conn)? { ScanMode::Incremental } else { ScanMode::Full });
+    // 未指定时：库为空或索引规则已升级则全量，否则增量
+    let mode = mode.unwrap_or(
+        if scanner::has_any_cursor(&conn)? && scanner::stored_index_version(&conn)? == scanner::INDEX_VERSION {
+            ScanMode::Incremental
+        } else {
+            ScanMode::Full
+        },
+    );
 
     let mode_str = match mode {
         ScanMode::Incremental => "incremental",
@@ -85,7 +92,11 @@ fn scan_inner(app: &AppHandle, state: &AppState, mode: Option<ScanMode>) -> Resu
                 let _ = app.emit(EVT_PROGRESS, Progress { done, total });
             }
         };
-        scanner::scan(&mut conn, &files, mode, &Local, &mut progress)
+        let stats = scanner::scan(&mut conn, &files, mode, &Local, &mut progress)?;
+        if mode == ScanMode::Full {
+            scanner::save_index_version(&conn)?;
+        }
+        Ok(stats)
     })();
 
     match &result {
