@@ -194,7 +194,10 @@ M4 人工验收：用户确认正常（2026-11-11）。
 ## v0.2 规划（2026-11-11）
 
 - 新增 Insights 模块方案（`docs/DevDeck 实现方案.md` 第 12 节）：归档并查看 Claude Code 原生 `/insights` 报告，再支持从 DevDeck 触发；默认关闭
-- 下一步 I0：需用户手动运行一次 `/insights`，并同意实测 `claude -p "/insights"`
+- I0 实测完成（2026-11-11）：`usage-data/` 结构为 `report.html` + `report-<时间戳>.html` + `facets/` + `session-meta/`；每次运行新增约 50 个会话的分析；报告自带内联脚本（折叠、复制）并外链 Google Fonts
+- `claude -p "/insights" --output-format json` 可后台运行：78 秒，退出码 0，`result` 中含报告路径，本次 $1.69；Git Bash 下参数会被 MSYS 改写，须由 PowerShell / CreateProcess 调用
+- 据此修订方案 12 节：触发改为后台方式，放弃打开终端方式；iframe 改为允许脚本、不给同源
+- 下一步 I1：归档与查看
 
 ## 待确认
 

@@ -295,34 +295,43 @@ DevDeck/
 - 分析通过用户自己的 provider / 账号运行，消耗套餐额度或 API token
 - 文档来源：costs.md「Analyze your usage patterns」、commands.md、claude-directory.md、headless.md
 
-**未确认（实现前须本机实测）**
+**I0 本机实测（2026-11-11，Claude Code 2.1.322）**
 
-- `claude -p "/insights"` 能否在非交互模式运行（headless.md 列出的 `-p` 可用内置命令不含 `/insights`）
-- `claude "/insights"` 以初始提示启动交互会话时是否自动执行
-- 时间戳副本的命名格式、缓存数据的文件与格式；报告 HTML 是否依赖脚本
-- 结构化结果是否会写入会话日志（有一条未核实的线索：运行后会话中出现过含项目领域、会话数等字段的 JSON）
+- `usage-data/` 结构：
+  - `report.html`：最新报告；`report-YYYY-MM-DD-HHMMSS.html`：每次运行的时间戳副本，内容与当次的 `report.html` 相同
+  - `facets/<session_id>.json`：按会话的模型分析结果（目标、结果、摩擦点、摘要等字段）
+  - `session-meta/<session_id>.json`：按会话的本地统计（时长、消息数、工具次数、token、代码行数等）
+- 每次运行新增约 50 个会话的模型分析（两次运行 facets 各 +50），报告按累计结果重新汇总
+- 报告头部格式：`<p class="subtitle">1,842 messages across 228 sessions (526 total) | 2026-07-27 to 2026-11-11</p>`
+- 报告 HTML 约 60–70KB，自带一段内联脚本（折叠面板、复制按钮、时段直方图切换），外链 Google Fonts；不加载其他外部资源、不发请求
+- **`claude -p "/insights" --output-format json` 可以后台运行**：78 秒完成，退出码 0，`subtype=success`；`result` 文本中包含报告路径（`file://...report-<时间戳>.html`）；本次 `total_cost_usd` 为 1.69
+- 注意：从 Git Bash 调用时，MSYS 会把参数 `/insights` 改写成 `C:/Program Files/Git/insights`，导致命令没有被执行（这次也消耗了一次调用）；DevDeck 用 CreateProcess 直接传参，不受影响
+- 后台运行本身会产生一条新的会话日志（会被用量统计计入，属正常）
+- 未测：`claude "/insights"` 交互启动（方式 A 已可用，不再需要）
 
 ### 12.3 功能
 
 1. **归档**（I1）
    - 每次扫描时检查 `<Claude 目录>/usage-data/`，把新出现的报告 HTML 复制到 `<app_data_dir>/insights/`（按内容哈希去重），源文件不改动
-   - 缓存分析数据不读取、不归档（格式未公开）
+   - `facets/`、`session-meta/` 不读取、不归档（格式未公开，且 facets 是逐会话摘要）
 2. **查看**（I1）
    - 新页面「Insights」（日常开发分组）：左侧报告列表（生成时间、已分析 / 总会话数），右侧显示报告
-   - 报告放在禁止脚本的沙箱 iframe 中显示；若报告依赖脚本无法正常显示，改为「用系统浏览器打开归档文件」
+   - 报告放在沙箱 iframe（`srcdoc`，`sandbox="allow-scripts"`，不给 `allow-same-origin`）中显示：报告自带的折叠等脚本可运行，但无法访问 DevDeck 页面与 Tauri 接口；复制按钮在沙箱中可能无效
+   - 提供「用系统浏览器打开」（打开归档文件）
    - 单份删除、全部清除
 3. **触发**（I2）
-   - 方式 B（主）：打开终端窗口执行 `claude "/insights"`，用户可见进度；若初始提示不会自动执行，退化为打开终端并提示用户输入 `/insights`
-   - 方式 A（辅，实测可行才做）：后台执行 `claude -p "/insights"`，完成后自动归档并通知
-   - 触发前确认对话框：说明会消耗额度、会把会话内容发送给模型
-   - `claude` 可执行文件：PATH → `%USERPROFILE%\.local\bin\claude.exe` → 设置中手动指定
+   - 后台执行 `claude -p "/insights" --output-format json`（`CREATE_NO_WINDOW`，工作目录为 app_data_dir），完成后立即归档并通知；页面显示运行中状态与耗时
+   - 结果判断：退出码 0 且 `subtype=success` 为成功；否则显示 `result` / stderr 摘要
+   - 触发前确认对话框：说明会消耗额度（本机实测一次约 $1.7，按 API 价格估算）、会把会话内容发送给模型
+   - `claude` 可执行文件：设置中手动指定 → PATH → `%USERPROFILE%\.local\bin\claude.exe`
+   - 已放弃「打开终端执行」方式：后台方式已验证可用，不再需要
 4. **结构化提取**（v0.2 之后候选）：若确认会话日志或缓存中有稳定的结构化结果，再做「问题 / 建议」条目的跨报告对比
 
 ### 12.4 约束与隐私
 
 - 模块**默认关闭**，在设置中由用户主动开启；关闭后不扫描 `usage-data/`、不显示页面
 - 第 10 节「正文不入库、不缓存、不联网」调整为：**DevDeck 自身不联网**；insights 报告（模型对会话的总结）是唯一被归档的会话衍生内容，可随时一键清除；会话正文仍不入库
-- 外部进程：带超时（方式 A 15 分钟）、`CREATE_NO_WINDOW`（方式 A）、退出码与 stderr 上报；同一时刻只允许一个 insights 任务
+- 外部进程：带超时（15 分钟）、`CREATE_NO_WINDOW`、退出码与 stderr 上报；同一时刻只允许一个 insights 任务
 - 解析宽松：只依赖「是 HTML 文件 + 文件时间」；「已分析 / 总会话数」解析失败时留空，不影响归档
 
 ### 12.5 数据
@@ -345,7 +354,7 @@ CREATE TABLE insights_report (
 
 ### 12.6 里程碑与验收
 
-- **I0 实测**（前置）：用户手动运行一次 `/insights`；记录 `usage-data/` 实际文件结构、报告是否依赖脚本；经用户同意后实测 `claude -p "/insights"` 与 `claude "/insights"`。结论写入 `docs/progress.md`，并据此修订本节
+- **I0 实测**（已完成 2026-11-11）：结论见 12.2
 - **I1 归档与查看**：验收——开启模块后，已有报告被归档并可查看；删除 `usage-data/` 后归档仍可查看；关闭模块后不再扫描；一键清除后归档目录与表为空
 - **I2 触发**：验收——从 DevDeck 触发后，新报告在完成后 1 分钟内出现在列表中；`claude` 不存在、超时、非零退出时显示明确错误，不崩溃
 
@@ -353,7 +362,7 @@ CREATE TABLE insights_report (
 
 | 风险 | 影响 | 应对 |
 | --- | --- | --- |
-| `-p` 模式不支持 `/insights` | 无法后台一键生成 | 以方式 B（终端）为主 |
+| 后续版本 `-p` 模式不再支持 `/insights` | 无法后台一键生成 | 错误提示中引导用户在 Claude Code 中手动运行，归档照常工作 |
 | 报告格式 / 文件命名随版本变化 | 解析失败 | 只归档原文件，不依赖内部结构 |
 | 报告含项目名与工作内容摘要 | 隐私 | 默认关闭、可一键清除、不联网 |
 | 每次运行消耗额度 | 费用 | 触发前确认；只在用户操作时触发，不做定时触发 |
