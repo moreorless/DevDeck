@@ -1,7 +1,17 @@
+mod claude_log;
+mod db;
+mod modules;
+mod scan_service;
+mod state;
 mod tray;
 mod window;
 
-use tauri::WindowEvent;
+use tauri::{Manager, WindowEvent};
+
+use crate::{
+    modules::{sessions, usage},
+    state::AppState,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -11,9 +21,21 @@ pub fn run() {
             window::show_main(app);
         }))
         .setup(|app| {
-            tray::init(app.handle())?;
+            let handle = app.handle().clone();
+            app.manage(AppState::init(&handle)?);
+            tray::init(&handle)?;
+            scan_service::spawn_startup_scan(handle);
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            scan_service::refresh,
+            scan_service::get_scan_status,
+            usage::commands::get_daily_usage,
+            usage::commands::get_summary,
+            usage::commands::list_projects,
+            usage::commands::list_models,
+            sessions::commands::list_sessions,
+        ])
         .on_window_event(|win, event| {
             // 关闭主窗口时隐藏到托盘，真正退出走托盘菜单。M5 接入 closeToTray 配置项
             if let WindowEvent::CloseRequested { api, .. } = event {

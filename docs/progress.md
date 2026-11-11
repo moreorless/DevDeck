@@ -23,6 +23,37 @@
 - 主题设置暂存 localStorage，M5 接入 tauri store 统一配置后迁移
 - 打包目标暂设为 `nsis`，便携版 zip 在 M6 处理
 
+## M2 日志解析与索引（已完成，2026-11-10）
+
+**已完成**
+
+- `claude_log/`：日志目录定位、文件枚举（含子代理）、宽松单行解析、按字节偏移的增量扫描
+- SQLite（WAL）：`file_cursor` / `usage_event` / `sessions` / `scan_log`；全量重建在单个事务中完成
+- 价格表 `resources/pricing.json`：来自官方价格页（2026-11-10 核对），支持 5m/1h cache 写、Haiku 5.5 长上下文分档、fast mode、US 地域倍率；费用在查询时计算
+- commands：`refresh`、`get_scan_status`、`get_daily_usage`、`get_summary`、`list_projects`、`list_models`、`list_sessions`；事件 `data://updated|error|progress`
+- 启动时后台扫描（库为空则全量，否则增量）
+- 前端：`shared/data.ts`、各模块 `api.ts`；关于页增加「数据状态」（目录、会话数、用量记录、上次扫描、立即刷新、全量重建）
+
+**验收记录**
+
+- 28 个单元测试通过：解析、价格、扫描（去重、子代理、时区、增量、不完整行、文件重写、文件删除、幂等）、用量与会话查询
+- 本机真实日志（805 个文件、1.26GB、36 万行）：release 全量扫描 8.2 秒，无变化增量 29ms；坏行 0
+- 与 `ccusage claude daily --json --offline --timezone America/Denver`（ccusage 20.0.48）对照：42 天中 41 天 input / output / cache 写 / cache 读四项完全一致；唯一差异为当天（本会话持续写入，两次扫描时间不同）
+- 应用内：启动自动全量扫描（debug 构建 27 秒），关于页「立即刷新」触发增量扫描正常
+
+**偏差与决策**
+
+- 去重：同一 `(message.id, requestId)` 保留 output_tokens 最大的一行（实测有 263 组重复行 usage 不同，个别为全 0）；与 ccusage 对照未出现差异
+- 会话以文件为单位（文件名即 sessionId）；文件内少量记录的 sessionId 与文件名不同（续接、转移场景），仍归入该文件的会话
+- 标题优先级：`custom-title` > 最后一条 `ai-title`
+- 提示数 `prompt_count` 只统计用户真正输入的内容（不含工具结果、meta、系统注入）；列表只显示提示数 > 0 的会话
+- 日志文件被删除时：删除会话索引，保留用量（Claude Code 会定期清理旧日志）；但「全量重建」会丢失这部分历史用量
+- fast mode 判定为 `usage.speed == "fast"`、US 地域判定为 `inference_geo == "us"`：本机日志只出现过 `standard` / `global` / `not_available`，实际取值待遇到后核实
+- 费用尚未与 ccusage 对照（ccusage 离线价格表可能不含新模型），以官方价格页为准
+
 ## 待确认
+
+- fast mode 与 US 地域在日志中的实际字段取值
+- 全量重建是否需要保留已被 Claude Code 清理的历史用量
 
 - 正式图标（暂用 Tauri 默认图标）

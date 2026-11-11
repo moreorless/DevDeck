@@ -1,0 +1,88 @@
+//! SQLite 连接与表结构迁移
+
+use std::{path::Path, time::Duration};
+
+use anyhow::Result;
+use rusqlite::Connection;
+
+const SCHEMA_V1: &str = r#"
+CREATE TABLE file_cursor (
+  path TEXT PRIMARY KEY,
+  size INTEGER NOT NULL,
+  mtime INTEGER NOT NULL,
+  offset INTEGER NOT NULL
+);
+CREATE TABLE usage_event (
+  message_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  project TEXT NOT NULL,
+  model TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  date TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_write_5m_tokens INTEGER NOT NULL,
+  cache_write_1h_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  prompt_tokens INTEGER NOT NULL,
+  speed TEXT,
+  geo TEXT,
+  PRIMARY KEY (message_id, request_id)
+);
+CREATE INDEX idx_usage_date ON usage_event(date);
+CREATE INDEX idx_usage_session ON usage_event(session_id);
+CREATE TABLE sessions (
+  session_id TEXT PRIMARY KEY,
+  file_path TEXT,
+  project TEXT,
+  git_branch TEXT,
+  ai_title TEXT,
+  custom_title TEXT,
+  first_prompt TEXT,
+  last_prompt TEXT,
+  started_at TEXT,
+  ended_at TEXT,
+  prompt_count INTEGER NOT NULL DEFAULT 0,
+  models TEXT NOT NULL DEFAULT '[]',
+  has_subagents INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_sessions_ended ON sessions(ended_at);
+CREATE TABLE scan_log (
+  id INTEGER PRIMARY KEY,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  mode TEXT NOT NULL,
+  files_total INTEGER,
+  files_read INTEGER,
+  bad_lines INTEGER,
+  ok INTEGER NOT NULL DEFAULT 0,
+  error TEXT
+);
+"#;
+
+/// 打开数据库（WAL 模式，允许扫描写入时并发读取）并执行迁移
+pub fn open(path: &Path) -> Result<Connection> {
+    let conn = Connection::open(path)?;
+    conn.busy_timeout(Duration::from_secs(10))?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    migrate(&conn)?;
+    Ok(conn)
+}
+
+/// 内存数据库，测试用
+#[cfg(test)]
+pub fn open_in_memory() -> Result<Connection> {
+    let conn = Connection::open_in_memory()?;
+    migrate(&conn)?;
+    Ok(conn)
+}
+
+fn migrate(conn: &Connection) -> Result<()> {
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if version < 1 {
+        conn.execute_batch(&format!("BEGIN;{SCHEMA_V1}PRAGMA user_version = 1;COMMIT;"))?;
+    }
+    Ok(())
+}

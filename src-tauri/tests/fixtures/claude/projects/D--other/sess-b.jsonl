@@ -1,0 +1,2 @@
+{"type":"user","uuid":"b-u1","parentUuid":null,"timestamp":"2026-11-03T12:00:00.000Z","cwd":"D:\\other","sessionId":"sess-b","message":{"role":"user","content":"查询报表 100%_完成"}}
+{"type":"assistant","uuid":"b-a1","parentUuid":"b-u1","timestamp":"2026-11-03T12:00:03.000Z","cwd":"D:\\other","requestId":"req_b1","sessionId":"sess-b","message":{"id":"msg_b1","model":"unknown-model-x","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
