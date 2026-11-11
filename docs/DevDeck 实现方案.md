@@ -315,7 +315,7 @@ DevDeck/
    - 方式 B（主）：打开终端窗口执行 `claude "/insights"`，用户可见进度；若初始提示不会自动执行，退化为打开终端并提示用户输入 `/insights`
    - 方式 A（辅，实测可行才做）：后台执行 `claude -p "/insights"`，完成后自动归档并通知
    - 触发前确认对话框：说明会消耗额度、会把会话内容发送给模型
-   - `claude` 可执行文件：PATH → `%USERPROFILE%\.localin\claude.exe` → 设置中手动指定
+   - `claude` 可执行文件：PATH → `%USERPROFILE%\.local\bin\claude.exe` → 设置中手动指定
 4. **结构化提取**（v0.2 之后候选）：若确认会话日志或缓存中有稳定的结构化结果，再做「问题 / 建议」条目的跨报告对比
 
 ### 12.4 约束与隐私
