@@ -64,6 +64,10 @@ pub fn run() {
             settings::check_claude_dir,
         ])
         .on_window_event(|win, event| {
+            // 显示缩放变化：托盘图标换成对应尺寸
+            if let WindowEvent::ScaleFactorChanged { .. } = event {
+                tray::refresh_icon(win.app_handle());
+            }
             // 关闭主窗口：开启「最小化到托盘」时隐藏，否则正常关闭（最后一个窗口关闭即退出）
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let to_tray = win.app_handle().try_state::<AppState>().is_none_or(|s| s.config().close_to_tray);

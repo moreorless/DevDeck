@@ -3,6 +3,7 @@
 use anyhow::Result;
 use tauri::{
     AppHandle, Manager, Wry,
+    image::Image,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -58,13 +59,45 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
                 window::toggle_main(tray.app_handle());
             }
         });
-    if let Some(icon) = app.default_window_icon() {
+    if let Some(icon) = tray_icon(app) {
+        builder = builder.icon(icon);
+    } else if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
     builder.build(app)?;
     app.manage(TrayItems { autostart });
     refresh_tooltip(app);
     Ok(())
+}
+
+/// 托盘简化图标（源文件 icons/tray/source.svg），按 16px 网格绘制，预渲染多个尺寸
+const TRAY_ICONS: [(u32, &[u8]); 6] = [
+    (16, include_bytes!("../icons/tray/16x16.png")),
+    (20, include_bytes!("../icons/tray/20x20.png")),
+    (24, include_bytes!("../icons/tray/24x24.png")),
+    (32, include_bytes!("../icons/tray/32x32.png")),
+    (40, include_bytes!("../icons/tray/40x40.png")),
+    (48, include_bytes!("../icons/tray/48x48.png")),
+];
+
+/// 托盘图标逻辑尺寸 16px × 缩放比例，取不小于它的最小预渲染尺寸（避免系统放大发糊）
+pub fn pick_tray_size(scale: f64) -> u32 {
+    let want = (16.0 * scale).round() as u32;
+    TRAY_ICONS.iter().map(|(s, _)| *s).find(|s| *s >= want).unwrap_or(48)
+}
+
+fn tray_icon(app: &AppHandle) -> Option<Image<'static>> {
+    let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(1.0);
+    let size = pick_tray_size(scale);
+    let bytes = TRAY_ICONS.iter().find(|(s, _)| *s == size)?.1;
+    Image::from_bytes(bytes).ok()
+}
+
+/// 显示缩放变化时换成对应尺寸的托盘图标
+pub fn refresh_icon(app: &AppHandle) {
+    if let (Some(tray), Some(icon)) = (app.tray_by_id(TRAY_ID), tray_icon(app)) {
+        let _ = tray.set_icon(Some(icon));
+    }
 }
 
 /// 开启/关闭开机自启，返回系统中的实际状态，并同步托盘勾选
@@ -91,5 +124,21 @@ pub fn refresh_tooltip(app: &AppHandle) {
     };
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_tooltip(Some(text));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_tray_size;
+
+    #[test]
+    fn tray_size_follows_scale() {
+        assert_eq!(pick_tray_size(1.0), 16);
+        assert_eq!(pick_tray_size(1.25), 20);
+        assert_eq!(pick_tray_size(1.5), 24);
+        assert_eq!(pick_tray_size(1.75), 32);
+        assert_eq!(pick_tray_size(2.0), 32);
+        assert_eq!(pick_tray_size(2.5), 40);
+        assert_eq!(pick_tray_size(4.0), 48);
     }
 }

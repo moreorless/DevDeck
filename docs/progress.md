@@ -189,6 +189,8 @@ M4 人工验收：用户确认正常（2026-11-11）。
 
 **正式图标（2026-11-11）**：源文件 `src-tauri/icons/source.svg`（绿色渐变底 + 两张叠放卡片 + 三根递增柱，对应 Deck 与用量统计），`pnpm tauri icon src-tauri/icons/source.svg` 生成各尺寸，删除 android / ios 目录。16px 托盘下柱形不够清晰，仅保留「绿底白卡」轮廓，可接受。`build.rs` 增加 `rerun-if-changed=icons`：否则增量构建不会重新嵌入 exe 图标资源。
 
+**托盘简化图标（2026-11-11）**：`icons/tray/source.svg` 按 16px 网格绘制（绿底 + 三根白柱，去掉卡片），预渲染 16/20/24/32/40/48，启动时按主显示器缩放选不小于 16×缩放 的尺寸，缩放变化时更新；开启 tauri `image-png` 特性。生成命令：`pnpm tauri icon src-tauri/icons/tray/source.svg -o src-tauri/icons/tray -p 16 -p 20 -p 24 -p 32 -p 40 -p 48`。
+
 ## 待确认
 
 - 离线且无 WebView2 的机器：如有需要，另出 `offlineInstaller` 版本安装包

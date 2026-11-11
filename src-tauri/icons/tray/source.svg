@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- 托盘简化图标：按 16px 像素网格绘制（柱宽 2、间距 2、四边留 3），16/32px 下边缘对齐像素 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16a34a"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="16" height="16" rx="3.5" fill="url(#bg)"/>
+  <rect x="3" y="9" width="2" height="4" rx="0.5" fill="#ffffff"/>
+  <rect x="7" y="6" width="2" height="7" rx="0.5" fill="#ffffff"/>
+  <rect x="11" y="3" width="2" height="10" rx="0.5" fill="#ffffff"/>
+</svg>
