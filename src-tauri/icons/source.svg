@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- DevDeck 图标源文件：pnpm tauri icon src-tauri/icons/source.svg 生成各尺寸 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#16a34a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 底板 -->
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#bg)"/>
+
+  <!-- 后面一张卡（倾斜） -->
+  <rect x="270" y="228" width="460" height="580" rx="64" fill="#ffffff" fill-opacity="0.38"
+        transform="rotate(-12 500 518)"/>
+
+  <!-- 前面一张卡 -->
+  <rect x="314" y="246" width="460" height="580" rx="64" fill="#ffffff"/>
+
+  <!-- 用量柱 -->
+  <rect x="386" y="566" width="80" height="168" rx="22" fill="url(#bar)"/>
+  <rect x="504" y="456" width="80" height="278" rx="22" fill="url(#bar)"/>
+  <rect x="622" y="338" width="80" height="396" rx="22" fill="url(#bar)"/>
+</svg>
