@@ -1,4 +1,4 @@
-//! Insights 模块：归档并查看 Claude Code 原生 `/insights` 报告（默认关闭）
+//! Insights 模块：归档并查看 Claude Code 原生 `/insights` 报告（默认开启，可在设置中关闭）
 
 pub mod archive;
 pub mod cli;

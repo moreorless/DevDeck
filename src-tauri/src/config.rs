@@ -31,7 +31,7 @@ pub struct AppConfig {
     pub insights: InsightsConfig,
 }
 
-/// Insights 模块配置；默认关闭
+/// Insights 模块配置；默认开启（只归档与查看，生成报告需用户点击并确认）
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct InsightsConfig {
@@ -44,7 +44,7 @@ pub struct InsightsConfig {
 
 impl Default for InsightsConfig {
     fn default() -> Self {
-        Self { enabled: false, claude_path: None, translate: true }
+        Self { enabled: true, claude_path: None, translate: true }
     }
 }
 

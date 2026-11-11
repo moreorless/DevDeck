@@ -240,6 +240,8 @@ M4 人工验收：用户确认正常（2026-11-11）。
 - 设置页 claude 程序显示 `%USERPROFILE%\.local\bin\claude.exe（自动检测）`；关闭「翻译为中文」后生成的报告只有原文
 
 
+**默认开启（2026-11-11）**：按用户要求，`insights.enabled` 默认改为 true。已有 config.json 中保存的值不变；新安装启动后自动归档本机已有报告，生成新报告仍需点击并确认。
+
 ## 待确认
 
 - 离线且无 WebView2 的机器：如有需要，另出 `offlineInstaller` 版本安装包

@@ -342,7 +342,7 @@ DevDeck/
 
 ### 12.4 约束与隐私
 
-- 模块**默认关闭**，在设置中由用户主动开启；关闭后不扫描 `usage-data/`、不显示页面
+- 模块**默认开启**（用户 2026-11-11 决定，原方案为默认关闭）：只自动归档本机已有的报告；生成新报告必须由用户点击并确认费用。可在设置中关闭，关闭后不扫描 `usage-data/`、不显示页面
 - 第 10 节「正文不入库、不缓存、不联网」调整为：**DevDeck 自身不联网**；insights 报告（模型对会话的总结）是唯一被归档的会话衍生内容，可随时一键清除；会话正文仍不入库
 - 外部进程：带超时（15 分钟）、`CREATE_NO_WINDOW`、退出码与 stderr 上报；同一时刻只允许一个 insights 任务
 - 解析宽松：只依赖「是 HTML 文件 + 文件时间」；「已分析 / 总会话数」解析失败时留空，不影响归档
@@ -367,7 +367,7 @@ CREATE TABLE insights_report (
 );
 ```
 
-配置新增：`insights.enabled`（默认 false，I1）、`insights.claudePath`（可空，I2）、`insights.translate`（默认 true，I2）。
+配置新增：`insights.enabled`（默认 true，I1 时为 false，2026-11-11 改为默认开启）、`insights.claudePath`（可空，I2）、`insights.translate`（默认 true，I2）。
 
 I2 迁移（user_version 4）：`insights_report` 增加 `translated_file TEXT`（译文文件名）、`cost_usd REAL`（DevDeck 生成 / 翻译的估算费用）。
 
@@ -383,6 +383,6 @@ I2 迁移（user_version 4）：`insights_report` 增加 `translated_file TEXT`�
 | --- | --- | --- |
 | 后续版本 `-p` 模式不再支持 `/insights` | 无法后台一键生成 | 错误提示中引导用户在 Claude Code 中手动运行，归档照常工作 |
 | 报告格式 / 文件命名随版本变化 | 解析失败 | 只归档原文件，不依赖内部结构 |
-| 报告含项目名与工作内容摘要 | 隐私 | 默认关闭、可一键清除、不联网 |
+| 报告含项目名与工作内容摘要 | 隐私 | 可在设置中关闭、可一键清除、不联网；生成需确认 |
 | 每次运行消耗额度 | 费用 | 触发前确认；只在用户操作时触发，不做定时触发 |
 
