@@ -187,7 +187,7 @@ M4 人工验收：用户确认正常（2026-11-11）。
 - 方案验收项「未装 Node、无网络的干净 Windows 10/11 上安装后正常显示数据」：需在干净机器或虚拟机上验证
 - 安装版开机自启（注册的是安装目录的 exe）
 
-**正式图标（2026-11-11）**：源文件 `src-tauri/icons/source.svg`（绿色渐变底 + 两张叠放卡片 + 三根递增柱，对应 Deck 与用量统计），`pnpm tauri icon src-tauri/icons/source.svg` 生成各尺寸，删除 android / ios 目录。16px 托盘下柱形不够清晰，仅保留「绿底白卡」轮廓，可接受。
+**正式图标（2026-11-11）**：源文件 `src-tauri/icons/source.svg`（绿色渐变底 + 两张叠放卡片 + 三根递增柱，对应 Deck 与用量统计），`pnpm tauri icon src-tauri/icons/source.svg` 生成各尺寸，删除 android / ios 目录。16px 托盘下柱形不够清晰，仅保留「绿底白卡」轮廓，可接受。`build.rs` 增加 `rerun-if-changed=icons`：否则增量构建不会重新嵌入 exe 图标资源。
 
 ## 待确认
 
