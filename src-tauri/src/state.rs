@@ -17,6 +17,8 @@ use crate::{
 
 pub struct AppState {
     pub db_path: PathBuf,
+    /// Insights 报告归档目录 `<app_data_dir>/insights`
+    pub insights_dir: PathBuf,
     config_path: PathBuf,
     /// 查询用连接；扫描使用单独的连接（WAL 模式下读写互不阻塞）
     conn: Mutex<Connection>,
@@ -45,6 +47,7 @@ impl AppState {
         let pricing = builtin_pricing.with_overrides(&config.pricing_overrides);
         Ok(Self {
             db_path,
+            insights_dir: dir.join("insights"),
             config_path,
             conn: Mutex::new(conn),
             builtin_pricing,

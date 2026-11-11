@@ -197,7 +197,27 @@ M4 人工验收：用户确认正常（2026-11-11）。
 - I0 实测完成（2026-11-11）：`usage-data/` 结构为 `report.html` + `report-<时间戳>.html` + `facets/` + `session-meta/`；每次运行新增约 50 个会话的分析；报告自带内联脚本（折叠、复制）并外链 Google Fonts
 - `claude -p "/insights" --output-format json` 可后台运行：78 秒，退出码 0，`result` 中含报告路径，本次 $1.69；Git Bash 下参数会被 MSYS 改写，须由 PowerShell / CreateProcess 调用
 - 据此修订方案 12 节：触发改为后台方式，放弃打开终端方式；iframe 改为允许脚本、不给同源
-- 下一步 I1：归档与查看
+
+### I1 归档与查看（2026-11-11）
+
+- 后端 `modules/insights/`：
+  - `archive.rs`：扫描各 Claude 目录的 `usage-data/report*.html`（带时间戳的副本优先于 `report.html`），按 sha256 去重复制到 `<app_data_dir>/insights/<时间>-<哈希前 12 位>.html`；解析头部「已分析 / 总会话数、时间范围」，失败留空
+  - 删除 / 清除：删文件，记录只留哈希（`deleted_at`），之后不会再次归档同一份
+  - 显示前去掉外链 `<link>`（Google Fonts）并注入 `default-src 'none'` 的 CSP；归档原文件不改
+  - commands：`list_insights` / `sync_insights` / `get_insight_html` / `open_insight_external` / `delete_insight` / `clear_insights`；事件 `insights://updated`
+- 归档时机：每次扫描成功后（模块开启时）；开启模块时立即执行一次；页面「检查新报告」
+- 数据库迁移到 user_version 3（新表 `insights_report`）；配置新增 `insights.enabled`（默认 false）；新依赖 `sha2`（Tauri 已间接依赖）
+- 前端：`/insights` 页面（模块开启才出现在侧边栏），左侧报告列表、右侧 `sandbox="allow-scripts"` 的 srcdoc iframe，可「用浏览器打开」「删除」；设置页新增 Insights 卡片（开启需确认，显示已归档份数，清除全部）
+- 测试：新增 7 个单元测试（头部解析、去重、源目录清理后仍可读、删除后不再归档、清除、非法文件名）+ 1 个本机真实报告测试（`cargo test real_report -- --ignored`，3 份报告均解析成功）；共 53 个通过
+
+**待手动验证（`pnpm tauri dev`）**
+
+- 设置中开启 Insights → 侧边栏出现 Insights，列表中有 2 份报告（01:16、02:15）
+- 报告内折叠面板可用；深色主题下报告为白底；「用浏览器打开」正常
+- 删除一份 → 列表减少，「检查新报告」不会再归档回来；设置页「清除全部归档」后列表为空
+- 关闭模块 → 侧边栏不再显示
+
+- 下一步 I2：从 DevDeck 后台触发 `claude -p "/insights"`
 
 ## 待确认
 

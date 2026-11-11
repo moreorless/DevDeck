@@ -13,7 +13,7 @@ mod window;
 use tauri::{Manager, WindowEvent};
 
 use crate::{
-    modules::{sessions, usage},
+    modules::{insights, sessions, usage},
     state::AppState,
 };
 
@@ -62,6 +62,12 @@ pub fn run() {
             settings::list_timezones,
             settings::get_pricing,
             settings::check_claude_dir,
+            insights::commands::list_insights,
+            insights::commands::sync_insights,
+            insights::commands::get_insight_html,
+            insights::commands::open_insight_external,
+            insights::commands::delete_insight,
+            insights::commands::clear_insights,
         ])
         .on_window_event(|win, event| {
             // 显示缩放变化：托盘图标换成对应尺寸

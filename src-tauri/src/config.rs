@@ -28,6 +28,14 @@ pub struct AppConfig {
     pub close_to_tray: bool,
     /// system | light | dark
     pub theme: String,
+    pub insights: InsightsConfig,
+}
+
+/// Insights 模块配置；默认关闭
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct InsightsConfig {
+    pub enabled: bool,
 }
 
 impl Default for AppConfig {
@@ -40,6 +48,7 @@ impl Default for AppConfig {
             autostart: false,
             close_to_tray: true,
             theme: "system".into(),
+            insights: InsightsConfig::default(),
         }
     }
 }

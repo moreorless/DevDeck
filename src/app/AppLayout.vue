@@ -3,9 +3,14 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { NLayout, NLayoutSider, NLayoutContent, NMenu, type MenuOption } from "naive-ui";
 import { routes, type NavMeta } from "./router";
+import { useSettingsStore } from "./settings";
 
 const route = useRoute();
 const router = useRouter();
+const settings = useSettingsStore();
+
+/** 可开关的模块：配置中开启才出现在侧边栏 */
+const featureOn = (f: NavMeta["feature"]) => !f || (f === "insights" && !!settings.config?.insights.enabled);
 
 const GROUP_LABELS: Record<NavMeta["group"], string> = {
   dev: "日常开发",
@@ -18,7 +23,7 @@ const menuOptions = computed<MenuOption[]>(() => {
   const groups = new Map<NavMeta["group"], MenuOption[]>();
   for (const r of routes) {
     const meta = r.meta as NavMeta | undefined;
-    if (!meta) continue;
+    if (!meta || !featureOn(meta.feature)) continue;
     const list = groups.get(meta.group) ?? [];
     list.push({ label: meta.title, key: r.path });
     groups.set(meta.group, list);

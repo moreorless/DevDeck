@@ -14,6 +14,7 @@ use crate::{
         scanner::{self, ScanMode, ScanStats, fmt_ts},
     },
     db,
+    modules::insights,
     state::{AppState, err},
     tray, with_tz,
 };
@@ -49,6 +50,10 @@ pub fn run_scan(app: &AppHandle, mode: Option<ScanMode>) -> Result<ScanStats> {
         Ok(stats) => {
             let _ = app.emit(EVT_UPDATED, stats);
             tray::refresh_tooltip(app);
+            // 顺带归档新的 insights 报告（模块关闭时不读取）；失败不影响扫描结果
+            if let Err(e) = insights::sync_if_enabled(app) {
+                eprintln!("归档 insights 报告失败: {e:#}");
+            }
         }
         Err(e) => {
             let _ = app.emit(EVT_ERROR, err(anyhow!("{e:#}")));

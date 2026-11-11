@@ -5,6 +5,8 @@ export interface NavMeta {
   title: string;
   /** 所属分组：日常开发 / 个人任务 / 系统 */
   group: "dev" | "personal" | "system";
+  /** 可在设置中开关的模块：关闭时侧边栏不显示 */
+  feature?: "insights";
 }
 
 export const routes: RouteRecordRaw[] = [
@@ -18,6 +20,11 @@ export const routes: RouteRecordRaw[] = [
     path: "/sessions",
     component: () => import("../modules/sessions/pages/SessionList.vue"),
     meta: { title: "会话浏览", group: "dev" } satisfies NavMeta,
+  },
+  {
+    path: "/insights",
+    component: () => import("../modules/insights/pages/InsightsPage.vue"),
+    meta: { title: "Insights", group: "dev", feature: "insights" } satisfies NavMeta,
   },
   {
     path: "/settings",

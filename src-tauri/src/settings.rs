@@ -10,9 +10,12 @@ use tauri_plugin_autostart::ManagerExt;
 use crate::{
     claude_log::scanner::{ScanMode, ScanStats},
     config::{AppConfig, timezone_names},
-    modules::usage::{
-        pricing::{LongContext, Rates, normalize_model},
-        query,
+    modules::{
+        insights,
+        usage::{
+            pricing::{LongContext, Rates, normalize_model},
+            query,
+        },
     },
     scan_service::{self, EVT_UPDATED},
     state::{AppState, err},
@@ -79,6 +82,10 @@ pub fn set_config(app: AppHandle, state: State<'_, AppState>, config: AppConfig)
         } else if old.pricing_overrides != new.pricing_overrides {
             let _ = app.emit(EVT_UPDATED, ScanStats::default());
             tray::refresh_tooltip(&app);
+        }
+        // 开启 Insights 后立即归档已有报告
+        if new.insights.enabled && !old.insights.enabled {
+            insights::spawn_sync(app.clone());
         }
         Ok::<_, anyhow::Error>(new)
     })()

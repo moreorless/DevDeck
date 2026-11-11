@@ -318,7 +318,7 @@ DevDeck/
    - 新页面「Insights」（日常开发分组）：左侧报告列表（生成时间、已分析 / 总会话数），右侧显示报告
    - 报告放在沙箱 iframe（`srcdoc`，`sandbox="allow-scripts"`，不给 `allow-same-origin`）中显示：报告自带的折叠等脚本可运行，但无法访问 DevDeck 页面与 Tauri 接口；复制按钮在沙箱中可能无效
    - 提供「用系统浏览器打开」（打开归档文件）
-   - 单份删除、全部清除
+   - 单份删除（报告页）、全部清除（设置页，模块关闭时也可用）；删除后只保留哈希，同一份报告不会再次归档
 3. **触发**（I2）
    - 后台执行 `claude -p "/insights" --output-format json`（`CREATE_NO_WINDOW`，工作目录为 app_data_dir），完成后立即归档并通知；页面显示运行中状态与耗时
    - 结果判断：退出码 0 且 `subtype=success` 为成功；否则显示 `result` / stderr 摘要
@@ -339,23 +339,27 @@ DevDeck/
 ```sql
 CREATE TABLE insights_report (
   id INTEGER PRIMARY KEY,
-  sha256 TEXT UNIQUE NOT NULL,       -- 去重
+  sha256 TEXT UNIQUE NOT NULL,       -- 去重；删除后仍保留，避免再次归档
   source_path TEXT NOT NULL,         -- 原始路径（可能已被 Claude Code 清理）
-  archived_file TEXT NOT NULL,       -- <app_data_dir>/insights/ 下的文件名
+  archived_file TEXT,                -- <app_data_dir>/insights/ 下的文件名；删除后为空
   generated_at TEXT NOT NULL,        -- 源文件修改时间（UTC）
-  sessions_analyzed INTEGER,         -- 从报告头部解析，可空
+  subtitle TEXT,                     -- 报告头部原文，以下统计从中解析，可空
+  sessions_analyzed INTEGER,
   sessions_total INTEGER,
+  period_start TEXT,
+  period_end TEXT,
   bytes INTEGER NOT NULL,
-  archived_at TEXT NOT NULL
+  archived_at TEXT NOT NULL,
+  deleted_at TEXT                    -- 删除时间；删除后清空文件名与统计，只留哈希
 );
 ```
 
-配置新增：`insights.enabled`（默认 false）、`insights.claudePath`（可空）。
+配置新增：`insights.enabled`（默认 false，I1）、`insights.claudePath`（可空，I2）。
 
 ### 12.6 里程碑与验收
 
 - **I0 实测**（已完成 2026-11-11）：结论见 12.2
-- **I1 归档与查看**：验收——开启模块后，已有报告被归档并可查看；删除 `usage-data/` 后归档仍可查看；关闭模块后不再扫描；一键清除后归档目录与表为空
+- **I1 归档与查看**：验收——开启模块后，已有报告被归档并可查看；删除 `usage-data/` 后归档仍可查看；关闭模块后不再扫描；一键清除后归档目录为空、表中只剩哈希，再次扫描不会重新归档
 - **I2 触发**：验收——从 DevDeck 触发后，新报告在完成后 1 分钟内出现在列表中；`claude` 不存在、超时、非零退出时显示明确错误，不崩溃
 
 ### 12.7 风险

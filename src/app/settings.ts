@@ -18,6 +18,7 @@ export interface AppConfig {
   autostart: boolean;
   closeToTray: boolean;
   theme: "system" | "light" | "dark";
+  insights: { enabled: boolean };
 }
 
 export interface DirStatus {

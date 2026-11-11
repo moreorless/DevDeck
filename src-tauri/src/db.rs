@@ -61,6 +61,25 @@ CREATE TABLE scan_log (
 );
 "#;
 
+/// Insights 报告归档索引；删除后只保留 sha256 等，避免再次归档
+const SCHEMA_V3: &str = r#"
+CREATE TABLE insights_report (
+  id INTEGER PRIMARY KEY,
+  sha256 TEXT UNIQUE NOT NULL,
+  source_path TEXT NOT NULL,
+  archived_file TEXT,
+  generated_at TEXT NOT NULL,
+  subtitle TEXT,
+  sessions_analyzed INTEGER,
+  sessions_total INTEGER,
+  period_start TEXT,
+  period_end TEXT,
+  bytes INTEGER NOT NULL,
+  archived_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+"#;
+
 /// 打开数据库（WAL 模式，允许扫描写入时并发读取）并执行迁移
 pub fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
@@ -88,6 +107,9 @@ fn migrate(conn: &Connection) -> Result<()> {
         conn.execute_batch(
             "BEGIN;CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);PRAGMA user_version = 2;COMMIT;",
         )?;
+    }
+    if version < 3 {
+        conn.execute_batch(&format!("BEGIN;{SCHEMA_V3}PRAGMA user_version = 3;COMMIT;"))?;
     }
     Ok(())
 }

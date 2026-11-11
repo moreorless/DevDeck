@@ -22,6 +22,7 @@ import { checkClaudeDir, listTimezones, useSettingsStore, type AppConfig } from 
 import { useThemeStore, type ThemeMode } from "../app/theme";
 import { refresh } from "../shared/data";
 import PricingSection from "./settings/PricingSection.vue";
+import InsightsSection from "./settings/InsightsSection.vue";
 
 const settings = useSettingsStore();
 const theme = useThemeStore();
@@ -179,6 +180,10 @@ function confirmRebuild() {
 
     <n-card title="价格表" size="small">
       <PricingSection />
+    </n-card>
+
+    <n-card title="Insights" size="small">
+      <InsightsSection />
     </n-card>
 
     <n-card title="系统与外观" size="small">
