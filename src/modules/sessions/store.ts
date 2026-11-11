@@ -30,6 +30,8 @@ export const useSessionsStore = defineStore("sessions", () => {
   const detailError = ref<string | null>(null);
   /** 显示系统注入内容（meta、附件、hook 输出等） */
   const showMeta = ref(false);
+  /** 仅显示用户请求（隐藏助手回复、工具调用等），便于快速浏览提问脉络 */
+  const userOnly = ref(false);
 
   const selected = computed(() => items.value.find((s) => s.sessionId === selectedId.value) ?? null);
   const current = computed(() => stack.value[stack.value.length - 1] ?? null);
@@ -123,6 +125,7 @@ export const useSessionsStore = defineStore("sessions", () => {
     detailLoading,
     detailError,
     showMeta,
+    userOnly,
     hasMore,
     init,
     loadList,

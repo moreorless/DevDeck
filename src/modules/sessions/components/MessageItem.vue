@@ -10,8 +10,10 @@ const emit = defineEmits<{ openAgent: [agentId: string] }>();
 
 const time = computed(() => {
   if (!props.item.ts) return "";
+  // 会话可能跨多天，带上月日
   const d = new Date(props.item.ts);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 });
 
 const html = computed(() => (props.item.kind === "assistant" ? renderMarkdown(props.item.text) : ""));

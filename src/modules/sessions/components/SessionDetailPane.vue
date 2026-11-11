@@ -16,8 +16,19 @@ const limit = ref(BATCH);
 
 const visibleItems = computed(() => {
   const all = store.current?.items ?? [];
+  if (store.userOnly) return all.filter((i) => i.kind === "user");
   return store.showMeta ? all : all.filter((i) => i.kind !== "meta");
 });
+const userCount = computed(() => (store.current?.items ?? []).filter((i) => i.kind === "user").length);
+
+// 切换显示范围后从头开始浏览
+watch(
+  () => [store.userOnly, store.showMeta],
+  () => {
+    limit.value = BATCH;
+    scroller.value?.scrollTo({ top: 0 });
+  },
+);
 const shown = computed(() => visibleItems.value.slice(0, limit.value));
 const hiddenMeta = computed(() => (store.current?.items ?? []).filter((i) => i.kind === "meta").length);
 
@@ -86,7 +97,11 @@ function blockLinks(e: MouseEvent) {
           <n-button size="small" @click="copyResume">复制 resume 命令</n-button>
           <n-button size="small" @click="openDir">打开项目目录</n-button>
           <span class="switch">
-            <n-switch v-model:value="store.showMeta" size="small" />
+            <n-switch v-model:value="store.userOnly" size="small" />
+            仅显示用户请求<template v-if="store.current">（{{ userCount }}）</template>
+          </span>
+          <span class="switch" :class="{ disabled: store.userOnly }">
+            <n-switch v-model:value="store.showMeta" size="small" :disabled="store.userOnly" />
             显示系统内容<template v-if="hiddenMeta">（{{ hiddenMeta }}）</template>
           </span>
         </n-space>
@@ -146,6 +161,9 @@ function blockLinks(e: MouseEvent) {
   gap: 6px;
   font-size: 12px;
   margin-left: 8px;
+}
+.switch.disabled {
+  opacity: 0.5;
 }
 .messages {
   flex: 1;
