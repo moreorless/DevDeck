@@ -18,7 +18,13 @@ export interface AppConfig {
   autostart: boolean;
   closeToTray: boolean;
   theme: "system" | "light" | "dark";
-  insights: { enabled: boolean };
+  insights: {
+    enabled: boolean;
+    /** 手动指定的 claude 可执行文件；null 时自动查找 */
+    claudePath: string | null;
+    /** 生成后自动翻译为简体中文 */
+    translate: boolean;
+  };
 }
 
 export interface DirStatus {

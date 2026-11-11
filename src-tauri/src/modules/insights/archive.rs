@@ -73,14 +73,14 @@ pub fn list_report_files(claude_dirs: &[PathBuf]) -> Vec<PathBuf> {
     out
 }
 
-/// 归档新报告，返回新增份数。已删除的报告留有哈希记录，不会再次归档
-pub fn sync(conn: &Connection, claude_dirs: &[PathBuf], archive_dir: &Path) -> Result<usize> {
+/// 归档新报告，返回新增报告的 id。已删除的报告留有哈希记录，不会再次归档
+pub fn sync(conn: &Connection, claude_dirs: &[PathBuf], archive_dir: &Path) -> Result<Vec<i64>> {
     let files = list_report_files(claude_dirs);
     if files.is_empty() {
-        return Ok(0);
+        return Ok(Vec::new());
     }
     std::fs::create_dir_all(archive_dir).with_context(|| format!("无法创建目录 {}", archive_dir.display()))?;
-    let mut added = 0;
+    let mut added = Vec::new();
     for path in files {
         let meta = std::fs::metadata(&path).with_context(|| format!("无法读取 {}", path.display()))?;
         if meta.len() > MAX_REPORT_BYTES {
@@ -121,7 +121,7 @@ pub fn sync(conn: &Connection, claude_dirs: &[PathBuf], archive_dir: &Path) -> R
             let _ = std::fs::remove_file(&dest);
             return Err(e.into());
         }
-        added += 1;
+        added.push(conn.last_insert_rowid());
     }
     Ok(added)
 }
@@ -138,12 +138,17 @@ pub struct InsightsReport {
     pub period_end: Option<String>,
     pub bytes: i64,
     pub source_path: String,
+    /// 已有中文译文
+    pub translated: bool,
+    /// 从 DevDeck 生成与翻译的估算费用；手动运行 /insights 的报告为空
+    pub cost_usd: Option<f64>,
 }
 
 /// 未删除的报告，新的在前
 pub fn list(conn: &Connection) -> Result<Vec<InsightsReport>> {
     let mut stmt = conn.prepare(
-        "SELECT id, generated_at, subtitle, sessions_analyzed, sessions_total, period_start, period_end, bytes, source_path
+        "SELECT id, generated_at, subtitle, sessions_analyzed, sessions_total, period_start, period_end, bytes, source_path,
+           translated_file IS NOT NULL, cost_usd
          FROM insights_report WHERE deleted_at IS NULL ORDER BY generated_at DESC, id DESC",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -157,17 +162,24 @@ pub fn list(conn: &Connection) -> Result<Vec<InsightsReport>> {
             period_end: r.get(6)?,
             bytes: r.get(7)?,
             source_path: r.get(8)?,
+            translated: r.get(9)?,
+            cost_usd: r.get(10)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// 归档文件的完整路径；只接受库中记录的纯文件名
-pub fn archived_path(conn: &Connection, archive_dir: &Path, id: i64) -> Result<PathBuf> {
-    let name: Option<Option<String>> = conn
-        .query_row("SELECT archived_file FROM insights_report WHERE id = ?1 AND deleted_at IS NULL", [id], |r| r.get(0))
-        .optional()?;
-    let name = name.flatten().ok_or_else(|| anyhow!("报告不存在或已删除"))?;
+/// 归档文件（`zh` 为真时取中文译文）的完整路径；只接受库中记录的纯文件名
+pub fn archived_path(conn: &Connection, archive_dir: &Path, id: i64, zh: bool) -> Result<PathBuf> {
+    let sql = if zh {
+        "SELECT translated_file FROM insights_report WHERE id = ?1 AND deleted_at IS NULL"
+    } else {
+        "SELECT archived_file FROM insights_report WHERE id = ?1 AND deleted_at IS NULL"
+    };
+    let name: Option<Option<String>> = conn.query_row(sql, [id], |r| r.get(0)).optional()?;
+    let name = name
+        .flatten()
+        .ok_or_else(|| anyhow!(if zh { "该报告还没有中文译文" } else { "报告不存在或已删除" }))?;
     if name.contains(['/', '\\']) || name.contains("..") {
         return Err(anyhow!("非法的归档文件名：{name}"));
     }
@@ -178,14 +190,27 @@ pub fn archived_path(conn: &Connection, archive_dir: &Path, id: i64) -> Result<P
     Ok(path)
 }
 
-/// 删除一份：删掉归档文件和统计信息，只留哈希，避免下次扫描重新归档
+/// 保存中文译文：`<原归档文件名>.zh.html`
+pub fn save_translation(conn: &Connection, archive_dir: &Path, id: i64, html: &str) -> Result<()> {
+    let src = archived_path(conn, archive_dir, id, false)?;
+    let name = format!("{}.zh.html", src.file_stem().and_then(|s| s.to_str()).unwrap_or("report"));
+    let dest = archive_dir.join(&name);
+    std::fs::write(&dest, html).with_context(|| format!("无法写入 {}", dest.display()))?;
+    conn.execute("UPDATE insights_report SET translated_file = ?1 WHERE id = ?2", params![name, id])?;
+    Ok(())
+}
+
+/// 删除一份：删掉归档文件、译文和统计信息，只留哈希，避免下次扫描重新归档
 pub fn delete(conn: &Connection, archive_dir: &Path, id: i64) -> Result<()> {
-    let name: Option<Option<String>> =
-        conn.query_row("SELECT archived_file FROM insights_report WHERE id = ?1", [id], |r| r.get(0)).optional()?;
-    if let Some(Some(name)) = name
-        && !name.contains(['/', '\\'])
-    {
-        remove_if_exists(&archive_dir.join(name))?;
+    let names: Option<(Option<String>, Option<String>)> = conn
+        .query_row("SELECT archived_file, translated_file FROM insights_report WHERE id = ?1", [id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()?;
+    if let Some((a, b)) = names {
+        for name in [a, b].into_iter().flatten().filter(|n| !n.contains(['/', '\\'])) {
+            remove_if_exists(&archive_dir.join(name))?;
+        }
     }
     conn.execute(TOMBSTONE_SQL_BY_ID, params![fmt_ts(&Utc::now()), id])?;
     Ok(())
@@ -205,11 +230,13 @@ pub fn clear(conn: &Connection, archive_dir: &Path) -> Result<usize> {
     Ok(n)
 }
 
-/// 删除后只留 sha256（及来源路径、时间），清空归档文件名和报告统计
-const TOMBSTONE_SQL_BY_ID: &str = "UPDATE insights_report SET deleted_at = ?1, archived_file = NULL, subtitle = NULL,
+/// 删除后只留 sha256（及来源路径、时间），清空归档文件名、译文和报告统计
+const TOMBSTONE_SQL_BY_ID: &str = "UPDATE insights_report SET deleted_at = ?1, archived_file = NULL,
+    translated_file = NULL, subtitle = NULL,
     sessions_analyzed = NULL, sessions_total = NULL, period_start = NULL, period_end = NULL
     WHERE id = ?2 AND deleted_at IS NULL";
-const TOMBSTONE_SQL_ALL: &str = "UPDATE insights_report SET deleted_at = ?1, archived_file = NULL, subtitle = NULL,
+const TOMBSTONE_SQL_ALL: &str = "UPDATE insights_report SET deleted_at = ?1, archived_file = NULL,
+    translated_file = NULL, subtitle = NULL,
     sessions_analyzed = NULL, sessions_total = NULL, period_start = NULL, period_end = NULL
     WHERE deleted_at IS NULL";
 
@@ -312,8 +339,8 @@ mod tests {
     fn sync_dedups_and_survives_source_cleanup() {
         let (_tmp, claude, archive, conn) = setup();
         let dirs = vec![claude.clone()];
-        assert_eq!(sync(&conn, &dirs, &archive).unwrap(), 1, "内容相同的两份只归档一次");
-        assert_eq!(sync(&conn, &dirs, &archive).unwrap(), 0);
+        assert_eq!(sync(&conn, &dirs, &archive).unwrap().len(), 1, "内容相同的两份只归档一次");
+        assert_eq!(sync(&conn, &dirs, &archive).unwrap().len(), 0);
 
         let list1 = list(&conn).unwrap();
         assert_eq!(list1.len(), 1);
@@ -322,13 +349,13 @@ mod tests {
 
         // Claude Code 清理 usage-data 后归档仍可读
         std::fs::remove_dir_all(claude.join("usage-data")).unwrap();
-        let p = archived_path(&conn, &archive, list1[0].id).unwrap();
+        let p = archived_path(&conn, &archive, list1[0].id, false).unwrap();
         assert_eq!(std::fs::read_to_string(p).unwrap(), SAMPLE);
 
         // 新报告
         std::fs::create_dir_all(claude.join("usage-data")).unwrap();
         std::fs::write(claude.join("usage-data").join("report.html"), SAMPLE.replace("228", "300")).unwrap();
-        assert_eq!(sync(&conn, &dirs, &archive).unwrap(), 1);
+        assert_eq!(sync(&conn, &dirs, &archive).unwrap().len(), 1);
         assert_eq!(list(&conn).unwrap().len(), 2);
     }
 
@@ -338,11 +365,18 @@ mod tests {
         let dirs = vec![claude];
         sync(&conn, &dirs, &archive).unwrap();
         let id = list(&conn).unwrap()[0].id;
+        assert!(archived_path(&conn, &archive, id, true).is_err(), "尚无译文");
+        save_translation(&conn, &archive, id, "<html>中文</html>").unwrap();
+        assert!(list(&conn).unwrap()[0].translated);
+        let zh = archived_path(&conn, &archive, id, true).unwrap();
+        assert!(zh.to_string_lossy().ends_with(".zh.html"));
+        assert_eq!(std::fs::read_to_string(zh).unwrap(), "<html>中文</html>");
+
         delete(&conn, &archive, id).unwrap();
         assert!(list(&conn).unwrap().is_empty());
-        assert!(archived_path(&conn, &archive, id).is_err());
+        assert!(archived_path(&conn, &archive, id, false).is_err());
         assert_eq!(std::fs::read_dir(&archive).unwrap().count(), 0);
-        assert_eq!(sync(&conn, &dirs, &archive).unwrap(), 0, "删除后不再归档同一份");
+        assert_eq!(sync(&conn, &dirs, &archive).unwrap().len(), 0, "删除后不再归档同一份");
     }
 
     #[test]
@@ -363,7 +397,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(left, 0, "只保留哈希");
-        assert_eq!(sync(&conn, &dirs, &archive).unwrap(), 0);
+        assert_eq!(sync(&conn, &dirs, &archive).unwrap().len(), 0);
     }
 
     #[test]
@@ -376,7 +410,7 @@ mod tests {
         )
         .unwrap();
         let tmp = tempfile::tempdir().unwrap();
-        assert!(archived_path(&conn, tmp.path(), 1).is_err());
+        assert!(archived_path(&conn, tmp.path(), 1, false).is_err());
     }
 
     /// 本机真实报告：`cargo test real_report -- --ignored --nocapture`

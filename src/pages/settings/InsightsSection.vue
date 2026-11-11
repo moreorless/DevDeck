@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { NButton, NForm, NFormItem, NSwitch, NText, useDialog, useMessage } from "naive-ui";
 import type { UnlistenFn } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useSettingsStore } from "../../app/settings";
-import { clearInsights, listInsights, onInsightsUpdated } from "../../modules/insights/api";
+import { clearInsights, detectClaude, listInsights, onInsightsUpdated } from "../../modules/insights/api";
 
 const settings = useSettingsStore();
 const message = useMessage();
@@ -12,6 +13,18 @@ const count = ref(0);
 let unlisten: UnlistenFn | null = null;
 
 const enabled = computed(() => settings.config?.insights.enabled ?? false);
+const insights = computed(() => settings.config!.insights);
+/** 实际会使用的 claude 路径，或找不到时的错误 */
+const claude = ref<{ path?: string; error?: string }>({});
+
+async function loadClaude() {
+  try {
+    claude.value = { path: await detectClaude() };
+  } catch (e) {
+    claude.value = { error: String(e) };
+  }
+}
+watch(() => settings.config?.insights.claudePath, loadClaude);
 
 async function loadCount() {
   try {
@@ -22,18 +35,25 @@ async function loadCount() {
 }
 
 onMounted(async () => {
-  await loadCount();
+  await Promise.all([loadCount(), loadClaude()]);
   unlisten = await onInsightsUpdated(loadCount);
 });
 onUnmounted(() => unlisten?.());
 
-async function save(on: boolean) {
+async function patch(p: Partial<typeof insights.value>, ok?: string) {
   try {
-    await settings.save({ insights: { ...settings.config!.insights, enabled: on } });
-    message.success(on ? "已开启 Insights，正在归档已有报告" : "已关闭 Insights，已归档的报告保留");
+    await settings.save({ insights: { ...insights.value, ...p } });
+    if (ok) message.success(ok);
   } catch (e) {
     message.error(String(e));
   }
+}
+const save = (on: boolean) =>
+  patch({ enabled: on }, on ? "已开启 Insights，正在归档已有报告" : "已关闭 Insights，已归档的报告保留");
+
+async function pickClaude() {
+  const picked = await open({ title: "选择 claude 可执行文件", filters: [{ name: "claude", extensions: ["exe", "cmd"] }] });
+  if (typeof picked === "string") await patch({ claudePath: picked }, "已指定 claude 路径");
 }
 
 function onToggle(on: boolean) {
@@ -73,8 +93,21 @@ function confirmClear() {
     <n-form-item label="启用">
       <n-switch :value="enabled" @update:value="onToggle" />
       <n-text depth="3" style="font-size: 12px; margin-left: 12px">
-        归档并查看 Claude Code 原生 /insights 报告；报告需在 Claude Code 中运行 /insights 生成（消耗额度）
+        归档并查看 Claude Code 原生 /insights 报告；可在 Insights 页一键生成，或在 Claude Code 中运行 /insights（均消耗额度）
       </n-text>
+    </n-form-item>
+    <n-form-item label="翻译为中文">
+      <n-switch :value="insights.translate" @update:value="(v: boolean) => patch({ translate: v })" />
+      <n-text depth="3" style="font-size: 12px; margin-left: 12px">
+        原生报告只有英文；从 DevDeck 生成后自动调用 claude 翻译正文（约 $0.2/份），原文保留
+      </n-text>
+    </n-form-item>
+    <n-form-item label="claude 程序">
+      <n-text v-if="claude.path" class="path">{{ claude.path }}</n-text>
+      <n-text v-else type="warning" style="font-size: 12px">{{ claude.error }}</n-text>
+      <n-text depth="3" style="font-size: 12px; margin-left: 8px">{{ insights.claudePath ? "手动指定" : "自动检测" }}</n-text>
+      <n-button size="tiny" style="margin-left: 8px" @click="pickClaude">选择…</n-button>
+      <n-button v-if="insights.claudePath" size="tiny" quaternary @click="patch({ claudePath: null })">改回自动检测</n-button>
     </n-form-item>
     <n-form-item label="已归档">
       <n-text>{{ count }} 份</n-text>
@@ -82,3 +115,10 @@ function confirmClear() {
     </n-form-item>
   </n-form>
 </template>
+
+<style scoped>
+.path {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 13px;
+}
+</style>

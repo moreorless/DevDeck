@@ -35,6 +35,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(AppState::init(&handle)?);
+            app.manage(insights::job::InsightsJob::default());
             tray::init(&handle)?;
             // 主窗口初始隐藏（tauri.conf.json visible=false），非自启场景才显示，避免闪一下
             if !std::env::args().any(|a| a == ARG_MINIMIZED) {
@@ -68,6 +69,10 @@ pub fn run() {
             insights::commands::open_insight_external,
             insights::commands::delete_insight,
             insights::commands::clear_insights,
+            insights::commands::generate_insights,
+            insights::commands::translate_insight,
+            insights::commands::get_insights_job,
+            insights::commands::detect_claude,
         ])
         .on_window_event(|win, event| {
             // 显示缩放变化：托盘图标换成对应尺寸

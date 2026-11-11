@@ -306,7 +306,8 @@ DevDeck/
 - 报告 HTML 约 60–70KB，自带一段内联脚本（折叠面板、复制按钮、时段直方图切换），外链 Google Fonts；不加载其他外部资源、不发请求
 - **`claude -p "/insights" --output-format json` 可以后台运行**：78 秒完成，退出码 0，`subtype=success`；`result` 文本中包含报告路径（`file://...report-<时间戳>.html`）；本次 `total_cost_usd` 为 1.69
 - 注意：从 Git Bash 调用时，MSYS 会把参数 `/insights` 改写成 `C:/Program Files/Git/insights`，导致命令没有被执行（这次也消耗了一次调用）；DevDeck 用 CreateProcess 直接传参，不受影响
-- 后台运行本身会产生一条新的会话日志（会被用量统计计入，属正常）
+- 后台运行本身会产生一条新的会话日志；但 `/insights` 各部分的模型调用（`querySource: insights`）不写入会话日志，用量统计看不到这部分花费 → DevDeck 自行记录每次生成 / 翻译的估算费用
+- **报告只有英文**：从 claude 程序中的源码看，各部分调用使用固定的空系统提示（`hasAppendSystemPrompt: false`），用户提示词前缀也是固定的，HTML 模板标题写死为英文；`settings.json` 的 `language` 与 `--append-system-prompt` 都不生效 → 需要生成后翻译
 - 未测：`claude "/insights"` 交互启动（方式 A 已可用，不再需要）
 
 ### 12.3 功能
@@ -325,7 +326,19 @@ DevDeck/
    - 触发前确认对话框：说明会消耗额度（本机实测一次约 $1.7，按 API 价格估算）、会把会话内容发送给模型
    - `claude` 可执行文件：设置中手动指定 → PATH → `%USERPROFILE%\.local\bin\claude.exe`
    - 已放弃「打开终端执行」方式：后台方式已验证可用，不再需要
-4. **结构化提取**（v0.2 之后候选）：若确认会话日志或缓存中有稳定的结构化结果，再做「问题 / 建议」条目的跨报告对比
+   - 附加参数：`--strict-mcp-config`（不加载 MCP）、`--no-session-persistence`（不产生 /insights 会话记录）、
+     `--settings {"disableAllHooks":true}`（不触发用户 hooks）；15 分钟超时
+   - 同一时刻只允许一个任务（生成或翻译），状态通过 `insights://job` 事件推送，页面显示阶段与耗时
+   - 费用：CLI 返回的 `total_cost_usd` 累加到 `insights_report.cost_usd`，在列表中显示
+4. **翻译为中文**（I2，用户 2026-11-11 补充需求）
+   - 只抽取 HTML 文本节点（跳过 script / style / 注释），去重后按约 1 万字符分批，并行调用
+     `claude -p --model sonnet --system-prompt <翻译提示> --tools "" --strict-mcp-config --disable-slash-commands --no-session-persistence`，
+     输入输出均为 JSON 字符串数组，条数不符即失败，不产生半中半英的结果；按原位置填回（转义 `& < >`），标签、属性、脚本不变
+   - 报告脚本中写死的几个界面文字（时段图表、复制按钮）按固定对照表替换
+   - 译文存为 `<归档文件名>.zh.html`，原文保留；页面可切换「中文 / 原文」；未翻译的报告可单独「翻译为中文」
+   - 设置项「翻译为中文」默认开启：从 DevDeck 生成后自动翻译；翻译失败不影响已生成的报告，可在报告页重试
+   - 本机实测（2026-11-11，228 会话的报告）：245 段、去重后 220 段、3 批，约 29 秒，$0.16；结构与脚本与原文一致
+5. **结构化提取**（v0.2 之后候选）：若确认会话日志或缓存中有稳定的结构化结果，再做「问题 / 建议」条目的跨报告对比
 
 ### 12.4 约束与隐私
 
@@ -354,13 +367,15 @@ CREATE TABLE insights_report (
 );
 ```
 
-配置新增：`insights.enabled`（默认 false，I1）、`insights.claudePath`（可空，I2）。
+配置新增：`insights.enabled`（默认 false，I1）、`insights.claudePath`（可空，I2）、`insights.translate`（默认 true，I2）。
+
+I2 迁移（user_version 4）：`insights_report` 增加 `translated_file TEXT`（译文文件名）、`cost_usd REAL`（DevDeck 生成 / 翻译的估算费用）。
 
 ### 12.6 里程碑与验收
 
 - **I0 实测**（已完成 2026-11-11）：结论见 12.2
 - **I1 归档与查看**：验收——开启模块后，已有报告被归档并可查看；删除 `usage-data/` 后归档仍可查看；关闭模块后不再扫描；一键清除后归档目录为空、表中只剩哈希，再次扫描不会重新归档
-- **I2 触发**：验收——从 DevDeck 触发后，新报告在完成后 1 分钟内出现在列表中；`claude` 不存在、超时、非零退出时显示明确错误，不崩溃
+- **I2 触发与翻译**：验收——从 DevDeck 触发后，新报告在完成后 1 分钟内出现在列表中并默认显示中文；`claude` 不存在、超时、非零退出时显示明确错误，不崩溃
 
 ### 12.7 风险
 

@@ -217,7 +217,26 @@ M4 人工验收：用户确认正常（2026-11-11）。
 - 删除一份 → 列表减少，「检查新报告」不会再归档回来；设置页「清除全部归档」后列表为空
 - 关闭模块 → 侧边栏不再显示
 
-- 下一步 I2：从 DevDeck 后台触发 `claude -p "/insights"`
+
+### I2 一键生成与中文翻译（2026-11-11）
+
+- 补充需求：报告使用中文。核查 claude 程序源码：`/insights` 各部分调用使用固定空系统提示、HTML 模板写死英文，`language` 设置（本机已设为简体中文）和 `--append-system-prompt` 都无效 → 改为生成后翻译
+- 后端 `modules/insights/`：
+  - `cli.rs`：查找 claude（设置 → PATH 的 claude.exe / claude.cmd → `%USERPROFILE%\.local\bin\claude.exe`）；`run_json` 带超时、`CREATE_NO_WINDOW`，stdin / stdout / stderr 各一个线程，解析 `--output-format json` 结果，失败时上报退出码与 `result` / stderr 末尾
+  - `translate.rs`：抽取文本节点 → 去重分批 → 并行 `claude -p --model sonnet`（自定义翻译系统提示、无工具、无 MCP、无斜杠命令、不保存会话、关闭 hooks）→ 按位置填回；脚本中的固定界面文字按对照表替换
+  - `job.rs`：后台任务（生成 → 归档 → 翻译，或单独翻译），同一时刻一个，`insights://job` 推送状态；记录估算费用
+  - 迁移 user_version 4：`translated_file`、`cost_usd`；配置新增 `claudePath`、`translate`（默认开启）
+- 前端：Insights 页「生成新报告」（确认框说明费用与发送内容）、运行中显示阶段与耗时、错误提示；报告「中文 / 原文」切换、「翻译为中文」；列表显示「中文」标记与 DevDeck 生成费用。设置页新增「翻译为中文」开关与 claude 路径（显示自动检测结果，可手动选择）
+- 测试：新增 8 个单元测试（CLI 结果解析、文本节点抽取、去重分批、填回保结构、实体解码、译文数组校验、脚本文字替换、译文保存与删除），共 60 个通过；2 个本机测试（`real_report_segments`、`real_translate`，后者会调用 claude）
+- 实测翻译 3 次（调整提示词，其中 1 次因脚本编码问题提示词未生效，白跑 $0.105）：最终版 29 秒、$0.16；建议写入 CLAUDE.md 的规则段落也已翻译，命令与路径保持原样，标签与脚本和原文一致
+- 未实测：带 `--no-session-persistence` / `--strict-mcp-config` / `disableAllHooks` 的生成命令（I0 实测的是不带这些参数的版本），由第一次点击「生成新报告」验证
+
+**待手动验证（`pnpm tauri dev`）**
+
+- 已有的两份英文报告：「翻译为中文」→ 约 30 秒后出现「中文」标记，默认显示中文，可切换原文；图表时段与复制按钮为中文
+- 「生成新报告」→ 确认 → 运行中显示「正在生成 / 正在翻译 · 已用 m:ss」→ 完成后自动选中新报告并显示中文，列表显示费用
+- 设置页 claude 程序显示 `%USERPROFILE%\.local\bin\claude.exe（自动检测）`；关闭「翻译为中文」后生成的报告只有原文
+
 
 ## 待确认
 

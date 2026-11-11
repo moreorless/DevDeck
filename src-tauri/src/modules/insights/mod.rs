@@ -1,7 +1,10 @@
 //! Insights 模块：归档并查看 Claude Code 原生 `/insights` 报告（默认关闭）
 
 pub mod archive;
+pub mod cli;
 pub mod commands;
+pub mod job;
+pub mod translate;
 
 use anyhow::Result;
 use tauri::{AppHandle, Emitter, Manager};
@@ -18,7 +21,7 @@ pub fn sync_if_enabled(app: &AppHandle) -> Result<usize> {
     if !cfg.insights.enabled {
         return Ok(0);
     }
-    let added = archive::sync(&state.conn(), &cfg.candidate_dirs(), &state.insights_dir)?;
+    let added = archive::sync(&state.conn(), &cfg.candidate_dirs(), &state.insights_dir)?.len();
     if added > 0 {
         let _ = app.emit(EVT_INSIGHTS_UPDATED, added);
     }

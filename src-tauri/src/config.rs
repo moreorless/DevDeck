@@ -32,10 +32,20 @@ pub struct AppConfig {
 }
 
 /// Insights 模块配置；默认关闭
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct InsightsConfig {
     pub enabled: bool,
+    /// 手动指定的 claude 可执行文件；为空时自动查找
+    pub claude_path: Option<String>,
+    /// 生成后自动翻译为简体中文
+    pub translate: bool,
+}
+
+impl Default for InsightsConfig {
+    fn default() -> Self {
+        Self { enabled: false, claude_path: None, translate: true }
+    }
 }
 
 impl Default for AppConfig {
@@ -104,6 +114,8 @@ impl AppConfig {
         }
         self.claude_dirs = seen;
         self.timezone = self.timezone.filter(|t| !t.trim().is_empty());
+        self.insights.claude_path =
+            self.insights.claude_path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
         self
     }
 

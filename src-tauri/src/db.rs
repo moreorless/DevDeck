@@ -111,5 +111,12 @@ fn migrate(conn: &Connection) -> Result<()> {
     if version < 3 {
         conn.execute_batch(&format!("BEGIN;{SCHEMA_V3}PRAGMA user_version = 3;COMMIT;"))?;
     }
+    if version < 4 {
+        // Insights 中文译文文件名（`<归档文件名>.zh.html`）；从 DevDeck 生成 / 翻译的估算费用
+        conn.execute_batch(
+            "BEGIN;ALTER TABLE insights_report ADD COLUMN translated_file TEXT;
+             ALTER TABLE insights_report ADD COLUMN cost_usd REAL;PRAGMA user_version = 4;COMMIT;",
+        )?;
+    }
     Ok(())
 }

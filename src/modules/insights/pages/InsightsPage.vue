@@ -1,17 +1,34 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { NButton, NEmpty, NSpin, NText, NAlert, useMessage, useDialog } from "naive-ui";
+import {
+  NButton,
+  NEmpty,
+  NSpin,
+  NText,
+  NAlert,
+  NTag,
+  NRadioGroup,
+  NRadioButton,
+  useMessage,
+  useDialog,
+} from "naive-ui";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../../../app/settings";
+import { fmtUsd } from "../../../shared/format";
 import {
   listInsights,
   syncInsights,
   getInsightHtml,
   openInsightExternal,
   deleteInsight,
+  generateInsights,
+  translateInsight,
+  getInsightsJob,
   onInsightsUpdated,
+  onInsightsJob,
   fmtLocal,
   type InsightsReport,
+  type JobStatus,
 } from "../api";
 
 const settings = useSettingsStore();
@@ -19,15 +36,28 @@ const message = useMessage();
 const dialog = useDialog();
 
 const enabled = computed(() => settings.config?.insights.enabled ?? false);
+const autoTranslate = computed(() => settings.config?.insights.translate ?? true);
 const reports = ref<InsightsReport[]>([]);
 const selectedId = ref<number | null>(null);
+/** 当前显示中文译文还是原文 */
+const lang = ref<"zh" | "en">("zh");
 const html = ref<string | null>(null);
 const loadingHtml = ref(false);
 const htmlError = ref<string | null>(null);
 const syncing = ref(false);
-let unlisten: UnlistenFn | null = null;
+const job = ref<JobStatus | null>(null);
+const now = ref(Date.now());
+const unlisteners: UnlistenFn[] = [];
+let timer: number | undefined;
 
 const selected = computed(() => reports.value.find((r) => r.id === selectedId.value) ?? null);
+const showZh = computed(() => lang.value === "zh" && !!selected.value?.translated);
+const running = computed(() => job.value?.running ?? false);
+const elapsed = computed(() => {
+  if (!job.value?.startedAt) return "";
+  const s = Math.max(0, Math.floor((now.value - new Date(job.value.startedAt).getTime()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+});
 
 async function loadList() {
   try {
@@ -38,27 +68,48 @@ async function loadList() {
   }
 }
 
-watch(selectedId, async (id) => {
+async function loadHtml() {
+  const id = selectedId.value;
+  const zh = showZh.value;
   html.value = null;
   htmlError.value = null;
   if (id == null) return;
   loadingHtml.value = true;
   try {
-    const h = await getInsightHtml(id);
-    if (selectedId.value === id) html.value = h;
+    const h = await getInsightHtml(id, zh);
+    if (selectedId.value === id && showZh.value === zh) html.value = h;
   } catch (e) {
     if (selectedId.value === id) htmlError.value = String(e);
   } finally {
     loadingHtml.value = false;
   }
-});
+}
+
+// 切换报告或语言、或译文刚生成时重新加载
+watch([selectedId, showZh], loadHtml);
+watch(selectedId, () => (lang.value = "zh"));
+
+function onJob(s: JobStatus) {
+  const wasRunning = job.value?.running;
+  job.value = s;
+  if (wasRunning && !s.running) {
+    if (s.error) message.error(s.error, { duration: 8000 });
+    else message.success(`${s.message ?? "完成"}${s.costUsd ? `（估算费用 ${fmtUsd(s.costUsd)}）` : ""}`);
+    if (s.reportId != null) selectedId.value = s.reportId;
+  }
+}
 
 onMounted(async () => {
   if (!settings.view) await settings.load().catch(() => {});
   await loadList();
-  unlisten = await onInsightsUpdated(loadList);
+  unlisteners.push(await onInsightsUpdated(loadList), await onInsightsJob(onJob));
+  job.value = await getInsightsJob().catch(() => null);
+  timer = window.setInterval(() => (now.value = Date.now()), 1000);
 });
-onUnmounted(() => unlisten?.());
+onUnmounted(() => {
+  unlisteners.forEach((f) => f());
+  window.clearInterval(timer);
+});
 
 async function checkNow() {
   syncing.value = true;
@@ -73,10 +124,47 @@ async function checkNow() {
   }
 }
 
+function confirmGenerate() {
+  dialog.warning({
+    title: "生成新的 Insights 报告",
+    content:
+      "将在后台运行 Claude Code 的 /insights：把本机近期会话内容发送给模型分析，消耗你的套餐额度或 API 费用" +
+      "（本机实测一次约 $1.7，按 API 价格估算），通常需要 1–3 分钟。" +
+      (autoTranslate.value ? "完成后再翻译为中文（约 $0.2）。" : ""),
+    positiveText: "开始生成",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      try {
+        await generateInsights();
+      } catch (e) {
+        message.error(String(e));
+      }
+    },
+  });
+}
+
+function confirmTranslate() {
+  const r = selected.value;
+  if (!r) return;
+  dialog.info({
+    title: "翻译为中文",
+    content: "Claude Code 原生报告只有英文。将调用 claude 把报告正文翻译为简体中文（约 $0.2、30 秒左右），原文保留。",
+    positiveText: "翻译",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      try {
+        await translateInsight(r.id);
+      } catch (e) {
+        message.error(String(e));
+      }
+    },
+  });
+}
+
 async function openExternal() {
   if (selectedId.value == null) return;
   try {
-    await openInsightExternal(selectedId.value);
+    await openInsightExternal(selectedId.value, showZh.value);
   } catch (e) {
     message.error(String(e));
   }
@@ -87,7 +175,7 @@ function confirmDelete() {
   if (!r) return;
   dialog.warning({
     title: "删除报告",
-    content: `删除 ${fmtLocal(r.generatedAt)} 生成的报告？删除后不会再次归档同一份报告。`,
+    content: `删除 ${fmtLocal(r.generatedAt)} 生成的报告（含中文译文）？删除后不会再次归档同一份报告。`,
     positiveText: "删除",
     negativeText: "取消",
     onPositiveClick: async () => {
@@ -123,9 +211,36 @@ const sessionsText = (r: InsightsReport) =>
     <aside class="left">
       <div class="head">
         <span class="title">Insights 报告</span>
-        <n-button v-if="enabled" size="tiny" :loading="syncing" @click="checkNow">检查新报告</n-button>
+        <n-button v-if="enabled" size="tiny" quaternary :loading="syncing" @click="checkNow">检查新报告</n-button>
       </div>
-      <n-alert v-if="!enabled" type="info" :show-icon="false" style="margin-bottom: 8px; font-size: 12px">
+      <n-button
+        v-if="enabled"
+        type="primary"
+        size="small"
+        block
+        :loading="running"
+        :disabled="running"
+        style="margin-bottom: 8px"
+        @click="confirmGenerate"
+      >
+        {{ running ? (job?.phase === "translating" ? "正在翻译" : "正在生成") : "生成新报告" }}
+      </n-button>
+      <n-alert v-if="running" type="info" :show-icon="false" class="job">
+        {{ job?.phase === "translating" ? "正在翻译为中文" : "正在后台运行 /insights，通常需要 1–3 分钟" }}
+        · 已用 {{ elapsed }}
+        <div class="hint">可以离开此页面，完成后自动出现在列表中</div>
+      </n-alert>
+      <n-alert
+        v-else-if="job?.error"
+        type="error"
+        :show-icon="false"
+        class="job"
+        closable
+        @close="job = { ...job!, error: null }"
+      >
+        {{ job.error }}
+      </n-alert>
+      <n-alert v-if="!enabled" type="info" :show-icon="false" class="job">
         模块已关闭，不再归档新报告；已归档的报告仍可查看
       </n-alert>
       <div class="list">
@@ -136,13 +251,17 @@ const sessionsText = (r: InsightsReport) =>
           :class="{ active: r.id === selectedId }"
           @click="selectedId = r.id"
         >
-          <div class="time">{{ fmtLocal(r.generatedAt) }}</div>
+          <div class="time">
+            {{ fmtLocal(r.generatedAt) }}
+            <n-tag v-if="r.translated" size="tiny" :bordered="false" type="success">中文</n-tag>
+          </div>
           <n-text depth="3" class="sub">{{ sessionsText(r) }}</n-text>
           <n-text v-if="r.periodStart" depth="3" class="sub">{{ r.periodStart }} ~ {{ r.periodEnd }}</n-text>
+          <n-text v-if="r.costUsd" depth="3" class="sub">DevDeck 生成费用 {{ fmtUsd(r.costUsd) }}</n-text>
         </div>
         <div v-if="!reports.length" class="empty">
           <div>还没有报告</div>
-          <n-text depth="3" style="font-size: 12px">在 Claude Code 中运行 /insights，生成后会自动归档</n-text>
+          <n-text depth="3" style="font-size: 12px">点击「生成新报告」，或在 Claude Code 中运行 /insights</n-text>
         </div>
       </div>
     </aside>
@@ -150,6 +269,11 @@ const sessionsText = (r: InsightsReport) =>
     <section class="right">
       <template v-if="selected">
         <div class="toolbar">
+          <n-radio-group v-if="selected.translated" v-model:value="lang" size="small">
+            <n-radio-button value="zh">中文</n-radio-button>
+            <n-radio-button value="en">原文</n-radio-button>
+          </n-radio-group>
+          <n-button v-else-if="enabled" size="small" :disabled="running" @click="confirmTranslate">翻译为中文</n-button>
           <n-text depth="3" class="src" :title="selected.sourcePath">来源：{{ selected.sourcePath }}</n-text>
           <n-button size="small" @click="openExternal">用浏览器打开</n-button>
           <n-button size="small" @click="confirmDelete">删除</n-button>
@@ -191,6 +315,14 @@ const sessionsText = (r: InsightsReport) =>
   font-size: 16px;
   font-weight: 600;
 }
+.job {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.hint {
+  opacity: 0.75;
+  margin-top: 2px;
+}
 .list {
   flex: 1;
   overflow-y: auto;
@@ -212,6 +344,9 @@ const sessionsText = (r: InsightsReport) =>
 .time {
   font-size: 14px;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .sub {
   font-size: 12px;
