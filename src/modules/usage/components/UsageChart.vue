@@ -83,7 +83,7 @@ function baseOption(): EChartsOption {
     backgroundColor: "transparent",
     animationDuration: 300,
     animationDurationUpdate: 200,
-    textStyle: { fontFamily: 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei UI", sans-serif' },
+    textStyle: { fontFamily: 'system-ui, -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif' },
     grid: { left: 56, right: 16, top: 36, bottom: 28 },
     xAxis: {
       type: "category",

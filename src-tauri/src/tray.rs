@@ -1,4 +1,4 @@
-//! 托盘：左键显示/隐藏主窗口；右键菜单；悬停显示今日用量
+//! 托盘：Windows 左键显示/隐藏主窗口、右键菜单；macOS 菜单栏图标点击弹出菜单（系统惯例）；悬停显示今日用量
 
 use anyhow::Result;
 use tauri::{
@@ -41,7 +41,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("DevDeck")
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_menu_event(|app, event| match event.id.as_ref() {
             MENU_SHOW => window::show_main(app),
             MENU_REFRESH => scan_service::spawn_scan(app.clone(), ScanMode::Incremental),
@@ -55,12 +55,16 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
+            if cfg!(target_os = "macos") {
+                return;
+            }
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
                 window::toggle_main(tray.app_handle());
             }
         });
     if let Some(icon) = tray_icon(app) {
-        builder = builder.icon(icon);
+        // macOS 用模板图标：系统按菜单栏的浅色 / 深色自动着色
+        builder = builder.icon(icon).icon_as_template(cfg!(target_os = "macos"));
     } else if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
@@ -86,15 +90,24 @@ pub fn pick_tray_size(scale: f64) -> u32 {
     TRAY_ICONS.iter().map(|(s, _)| *s).find(|s| *s >= want).unwrap_or(48)
 }
 
+/// macOS 菜单栏模板图标（源文件 icons/tray/macos/source.svg，18pt 的 2x 渲染）
+const MACOS_TEMPLATE: &[u8] = include_bytes!("../icons/tray/macos/template@2x.png");
+
 fn tray_icon(app: &AppHandle) -> Option<Image<'static>> {
+    if cfg!(target_os = "macos") {
+        return Image::from_bytes(MACOS_TEMPLATE).ok();
+    }
     let scale = app.primary_monitor().ok().flatten().map(|m| m.scale_factor()).unwrap_or(1.0);
     let size = pick_tray_size(scale);
     let bytes = TRAY_ICONS.iter().find(|(s, _)| *s == size)?.1;
     Image::from_bytes(bytes).ok()
 }
 
-/// 显示缩放变化时换成对应尺寸的托盘图标
+/// 显示缩放变化时换成对应尺寸的托盘图标（macOS 模板图标由系统缩放，无需处理）
 pub fn refresh_icon(app: &AppHandle) {
+    if cfg!(target_os = "macos") {
+        return;
+    }
     if let (Some(tray), Some(icon)) = (app.tray_by_id(TRAY_ID), tray_icon(app)) {
         let _ = tray.set_icon(Some(icon));
     }

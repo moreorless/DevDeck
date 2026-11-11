@@ -1,6 +1,6 @@
 # DevDeck
 
-Windows 本机桌面工具箱，Tauri 2 + Vue 3 + TypeScript。完整方案见 `docs/DevDeck 实现方案.md`，进度见 `docs/progress.md`。
+本机桌面工具箱（Windows 为主，兼容 macOS），Tauri 2 + Vue 3 + TypeScript。完整方案见 `docs/DevDeck 实现方案.md`，进度见 `docs/progress.md`。
 
 ## 技术栈
 
@@ -35,7 +35,8 @@ pnpm tauri build                                  # 打包 NSIS
 - 会话正文不入库、不缓存、不联网
 - 前端只读 SQLite（通过 commands），扫描在后台执行，完成后 emit 事件
 - 不实现方案第 1 节的非目标；不引入方案第 2 节以外的重量级依赖
-- 外部进程调用（如有）必须带超时、`CREATE_NO_WINDOW`、错误上报
+- 外部进程调用（如有）必须带超时、`CREATE_NO_WINDOW`（Windows）、错误上报
+- 平台差异集中在 `src-tauri/src/platform.rs`（主目录、打开路径等）；不要直接写 `explorer`、`USERPROFILE`、`.exe`
 
 ## 工作方式
 

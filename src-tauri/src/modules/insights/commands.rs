@@ -39,7 +39,7 @@ pub fn get_insight_html(state: State<'_, AppState>, id: i64, zh: bool) -> Result
 pub fn open_insight_external(state: State<'_, AppState>, id: i64, zh: bool) -> Result<(), String> {
     (|| {
         let path = archive::archived_path(&state.conn(), &state.insights_dir, id, zh)?;
-        std::process::Command::new("explorer").arg(&path).spawn()?;
+        crate::platform::open_path(&path)?;
         Ok(())
     })()
     .map_err(err)

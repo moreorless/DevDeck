@@ -40,7 +40,7 @@
     ],
     "publisher": "byzer",
     "copyright": "© 2026 byzer",
-    "shortDescription": "Windows 本机开发者工具箱",
+    "shortDescription": "本机开发者工具箱",
     "longDescription": "本地读取 Claude Code 日志，按天统计用量与估算费用，浏览历史会话。",
     "windows": {
       "webviewInstallMode": {

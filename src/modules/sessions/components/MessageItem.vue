@@ -194,7 +194,7 @@ const toolSummary = computed(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  font-family: Consolas, "Cascadia Mono", monospace;
+  font-family: Consolas, "Cascadia Mono", "SF Mono", Menlo, monospace;
 }
 .meta {
   opacity: 0.7;
@@ -210,7 +210,7 @@ const toolSummary = computed(() => {
   padding: 8px 10px;
   border-radius: 6px;
   background: rgba(128, 128, 128, 0.08);
-  font-family: Consolas, "Cascadia Mono", monospace;
+  font-family: Consolas, "Cascadia Mono", "SF Mono", Menlo, monospace;
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;

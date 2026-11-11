@@ -2,6 +2,7 @@ mod claude_log;
 mod config;
 mod db;
 mod modules;
+mod platform;
 mod scan_service;
 mod scheduler;
 mod settings;
@@ -79,7 +80,7 @@ pub fn run() {
             if let WindowEvent::ScaleFactorChanged { .. } = event {
                 tray::refresh_icon(win.app_handle());
             }
-            // 关闭主窗口：开启「最小化到托盘」时隐藏，否则正常关闭（最后一个窗口关闭即退出）
+            // 关闭主窗口：开启「最小化到托盘」时隐藏（macOS 仍留在程序坞，点击可恢复），否则正常关闭（最后一个窗口关闭即退出）
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let to_tray = win.app_handle().try_state::<AppState>().is_none_or(|s| s.config().close_to_tray);
                 if win.label() == window::MAIN && to_tray {
@@ -88,6 +89,13 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // macOS：窗口隐藏到菜单栏后，点击程序坞图标重新显示主窗口
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                window::show_main(_app);
+            }
+        });
 }

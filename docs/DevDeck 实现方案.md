@@ -232,6 +232,15 @@ DevDeck/
 - 产物：NSIS 安装包与便携版 zip
 - 构建环境：Windows 10/11 x64、Rust stable（MSVC 工具链）、Node 20+、pnpm；`pnpm tauri build`
 
+### 8.1 macOS 兼容（2026-11-11 用户要求「兼容 Windows、Mac」）
+
+- 平台差异集中在 `platform.rs`：主目录（Windows `USERPROFILE`，其他 `HOME`）、打开路径（`explorer` / `open` / `xdg-open`）、界面中的主目录写法（`%USERPROFILE%` / `~`）
+- 查找 claude：PATH → `~/.local/bin`、`~/.claude/local`；macOS 另查 `/opt/homebrew/bin`、`/usr/local/bin`、`~/.npm-global/bin`、`~/.bun/bin`（从访达启动的应用拿不到 shell 的 PATH）；子进程 PATH 前补上这些目录（npm 安装的 claude 依赖 node）
+- 菜单栏：单色模板图标 `icons/tray/macos/`（系统按浅色 / 深色自动着色）；点击图标弹出菜单（macOS 惯例）；窗口隐藏后点击程序坞图标恢复（`RunEvent::Reopen`）
+- 打包：`tauri.macos.conf.json`（`app` + `dmg`，最低 macOS 11），`pnpm release:mac [--universal]`；只能在 macOS 上构建；不签名，README 说明 Gatekeeper 提示
+- 开机自启：autostart 插件 LaunchAgent 方式（M5 已配置）
+- 验证状态：Windows 构建与测试通过；macOS 专用代码已对照 Tauri 2.12.5 源码核对接口，尚未在 Mac 上编译运行
+
 ## 9. 里程碑与验收标准
 
 1. **M1 工程骨架**：Tauri 2 + Vue 3 + TS 初始化，路由与布局、主题切换、单实例、托盘最小可用

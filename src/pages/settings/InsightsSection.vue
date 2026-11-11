@@ -52,7 +52,9 @@ const save = (on: boolean) =>
   patch({ enabled: on }, on ? "已开启 Insights，正在归档已有报告" : "已关闭 Insights，已归档的报告保留");
 
 async function pickClaude() {
-  const picked = await open({ title: "选择 claude 可执行文件", filters: [{ name: "claude", extensions: ["exe", "cmd"] }] });
+  // macOS / Linux 的 claude 没有扩展名，只在 Windows 上按扩展名过滤
+  const filters = settings.view?.platform === "windows" ? [{ name: "claude", extensions: ["exe", "cmd"] }] : undefined;
+  const picked = await open({ title: "选择 claude 可执行文件", filters });
   if (typeof picked === "string") await patch({ claudePath: picked }, "已指定 claude 路径");
 }
 
@@ -118,7 +120,7 @@ function confirmClear() {
 
 <style scoped>
 .path {
-  font-family: Consolas, "Cascadia Mono", monospace;
+  font-family: Consolas, "Cascadia Mono", "SF Mono", Menlo, monospace;
   font-size: 13px;
 }
 </style>

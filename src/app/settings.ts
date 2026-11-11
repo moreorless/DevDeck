@@ -38,6 +38,10 @@ export interface SettingsView {
   configError: string | null;
   dirs: DirStatus[];
   systemTimezone: string;
+  /** windows | macos | linux */
+  platform: string;
+  /** 界面展示用的主目录写法：%USERPROFILE% 或 ~ */
+  homeLabel: string;
 }
 
 export interface PriceRow {

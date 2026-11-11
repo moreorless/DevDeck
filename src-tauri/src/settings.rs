@@ -19,7 +19,7 @@ use crate::{
     },
     scan_service::{self, EVT_UPDATED},
     state::{AppState, err},
-    tray,
+    platform, tray,
 };
 
 #[derive(Serialize)]
@@ -40,6 +40,10 @@ pub struct SettingsView {
     pub dirs: Vec<DirStatus>,
     /// 系统时区名（用于「跟随系统」的说明）
     pub system_timezone: String,
+    /// 当前系统：windows | macos | linux（界面中的路径写法等）
+    pub platform: String,
+    /// 界面展示用的主目录写法：`%USERPROFILE%` 或 `~`
+    pub home_label: String,
 }
 
 #[tauri::command(async)]
@@ -59,6 +63,8 @@ pub fn get_settings(app: AppHandle, state: State<'_, AppState>) -> Result<Settin
         config_error: state.config_error.clone(),
         dirs,
         system_timezone: chrono::Local::now().format("%:z").to_string(),
+        platform: platform::OS.to_string(),
+        home_label: platform::home_label().to_string(),
     })
 }
 

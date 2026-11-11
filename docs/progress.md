@@ -242,6 +242,16 @@ M4 人工验收：用户确认正常（2026-11-11）。
 
 **默认开启（2026-11-11）**：按用户要求，`insights.enabled` 默认改为 true。已有 config.json 中保存的值不变；新安装启动后自动归档本机已有报告，生成新报告仍需点击并确认。
 
+## macOS 兼容（2026-11-11）
+
+- 用户要求代码兼容 Windows 与 Mac。新增 `platform.rs`（主目录、打开路径、主目录写法），替换两处 `explorer` 调用与 `USERPROFILE` 读取
+- 查找 claude 按系统区分文件名与安装目录；macOS 应用 PATH 很短，额外检查 Homebrew、`/usr/local/bin`、npm / bun 全局目录，并为子进程补全 PATH
+- 托盘：macOS 使用单色模板图标（`icons/tray/macos/source.svg` → `template@2x.png`，36px），点击弹出菜单；`RunEvent::Reopen` 时显示主窗口
+- 设置页：路径提示按系统显示（`SettingsView` 新增 `platform`、`homeLabel`）；选择 claude 时只在 Windows 按 exe/cmd 过滤；等宽字体补 SF Mono / Menlo
+- 打包：`tauri.macos.conf.json`、`scripts/release-mac.sh`（`pnpm release:mac [--universal]`，兼容 macOS 自带 bash 3.2）；Windows 打包配置不变
+- 验证：Windows 上 60 个测试通过、clippy 无新增告警、前端构建通过。尝试 `cargo check --target aarch64-apple-darwin` 失败（objc2 等 C 依赖需要 macOS 工具链），macOS 专用代码改为对照 Tauri 2.12.5 源码核对（`RunEvent::Reopen`、`icon_as_template`）
+- 待 Mac 上验证：编译、菜单栏图标深浅色、点击图标弹出菜单、程序坞恢复窗口、开机自启、日志目录与 claude 自动检测、Insights 生成与翻译、访达打开项目目录
+
 ## 待确认
 
 - 离线且无 WebView2 的机器：如有需要，另出 `offlineInstaller` 版本安装包

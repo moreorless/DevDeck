@@ -52,6 +52,12 @@ async function save(patch: Partial<AppConfig>, ok?: string) {
   }
 }
 
+/** 按当前系统的写法拼出主目录下的路径 */
+function homeDir(...parts: string[]) {
+  const sep = settings.view?.platform === "windows" ? "\\" : "/";
+  return [settings.view?.homeLabel ?? "~", ...parts].join(sep);
+}
+
 // 日志目录
 async function addDir() {
   const picked = await open({ directory: true, title: "选择 Claude 配置目录（包含 projects 子目录）" });
@@ -147,7 +153,7 @@ function confirmRebuild() {
         <n-space align="center">
           <n-button size="small" @click="addDir">添加目录</n-button>
           <n-text depth="3" style="font-size: 12px">
-            自动检测顺序：CLAUDE_CONFIG_DIR → %USERPROFILE%\.claude → %USERPROFILE%\.config\claude
+            自动检测顺序：CLAUDE_CONFIG_DIR → {{ homeDir(".claude") }} → {{ homeDir(".config", "claude") }}
           </n-text>
         </n-space>
       </n-space>
@@ -219,7 +225,7 @@ function confirmRebuild() {
   gap: 10px;
 }
 .path {
-  font-family: Consolas, "Cascadia Mono", monospace;
+  font-family: Consolas, "Cascadia Mono", "SF Mono", Menlo, monospace;
   font-size: 13px;
 }
 </style>

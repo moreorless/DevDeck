@@ -22,8 +22,7 @@ pub fn candidate_dirs() -> Vec<PathBuf> {
         dirs.extend(v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(PathBuf::from));
     }
     if dirs.is_empty() {
-        if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
-            let home = PathBuf::from(home);
+        if let Some(home) = crate::platform::home_dir() {
             dirs.push(home.join(".claude"));
             dirs.push(home.join(".config").join("claude"));
         }

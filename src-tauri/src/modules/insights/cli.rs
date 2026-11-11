@@ -12,32 +12,64 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
 
+use crate::platform;
+
 /// 后台调用时关闭用户配置的 hooks，避免触发用户的自动化（通知、记忆等）
 pub const NO_HOOKS_SETTINGS: &str = r#"{"disableAllHooks":true}"#;
 
-/// 查找 `claude`：设置中指定 → PATH → `%USERPROFILE%\.local\bin\claude.exe`
+/// 各系统下 claude 可执行文件的文件名
+const CLAUDE_NAMES: &[&str] = if cfg!(windows) { &["claude.exe", "claude.cmd"] } else { &["claude"] };
+
+/// PATH 之外的常见安装目录。macOS 从访达 / 程序坞启动的应用拿不到 shell 的 PATH
+/// （只有 /usr/bin:/bin:/usr/sbin:/sbin），必须显式检查这些目录
+fn extra_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = platform::home_dir() {
+        dirs.push(home.join(".local").join("bin")); // 原生安装器
+        dirs.push(home.join(".claude").join("local")); // 旧版本地安装
+        if !cfg!(windows) {
+            dirs.push(home.join(".npm-global").join("bin"));
+            dirs.push(home.join(".bun").join("bin"));
+        }
+    }
+    if cfg!(windows) {
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            dirs.push(PathBuf::from(appdata).join("npm")); // npm 全局安装
+        }
+    } else {
+        dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
+    }
+    dirs
+}
+
+/// 查找 `claude`：设置中指定 → PATH → 常见安装目录
 pub fn find_claude(configured: Option<&str>) -> Result<PathBuf> {
     if let Some(p) = configured.map(str::trim).filter(|p| !p.is_empty()) {
         let p = PathBuf::from(p);
         return if p.is_file() { Ok(p) } else { Err(anyhow!("设置中指定的 claude 不存在：{}", p.display())) };
     }
-    if let Some(path) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&path) {
-            for name in ["claude.exe", "claude.cmd"] {
-                let p = dir.join(name);
-                if p.is_file() {
-                    return Ok(p);
-                }
+    let path_dirs: Vec<PathBuf> =
+        std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    for dir in path_dirs.into_iter().chain(extra_dirs()) {
+        for name in CLAUDE_NAMES {
+            let p = dir.join(name);
+            if p.is_file() {
+                return Ok(p);
             }
         }
     }
-    if let Some(home) = std::env::var_os("USERPROFILE") {
-        let p = PathBuf::from(home).join(".local").join("bin").join("claude.exe");
-        if p.is_file() {
-            return Ok(p);
-        }
-    }
     Err(anyhow!("找不到 claude 可执行文件：请确认已安装 Claude Code，或在设置中手动指定路径"))
+}
+
+/// 子进程的 PATH：在原 PATH 前补上 claude 所在目录和常见安装目录。
+/// npm 安装的 claude 是 `#!/usr/bin/env node` 脚本，macOS 应用的 PATH 里找不到 node
+fn child_path(claude: &Path) -> Option<std::ffi::OsString> {
+    let mut dirs: Vec<PathBuf> = claude.parent().map(Path::to_path_buf).into_iter().collect();
+    dirs.extend(extra_dirs());
+    if let Some(p) = std::env::var_os("PATH") {
+        dirs.extend(std::env::split_paths(&p));
+    }
+    std::env::join_paths(dirs).ok()
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +100,9 @@ pub fn run_json(claude: &Path, args: &[&str], stdin: Option<&str>, cwd: &Path, t
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(path) = child_path(claude) {
+        cmd.env("PATH", path);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

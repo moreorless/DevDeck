@@ -8,7 +8,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1"
+    "release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1",
+    "release:mac": "bash scripts/release-mac.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

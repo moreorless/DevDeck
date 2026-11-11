@@ -106,7 +106,7 @@ pub fn get_subagent_session(
     .map_err(err)
 }
 
-/// 在资源管理器中打开会话的项目目录。只接受索引中已知的会话，不接受任意路径
+/// 在文件管理器（资源管理器 / 访达）中打开会话的项目目录。只接受索引中已知的会话，不接受任意路径
 #[tauri::command(async)]
 pub fn open_project_dir(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     (|| {
@@ -119,7 +119,7 @@ pub fn open_project_dir(state: State<'_, AppState>, session_id: String) -> Resul
         if !dir.is_dir() {
             return Err(anyhow!("项目目录已不存在：{}", dir.display()));
         }
-        std::process::Command::new("explorer").arg(&dir).spawn()?;
+        crate::platform::open_path(&dir)?;
         Ok(())
     })()
     .map_err(err)

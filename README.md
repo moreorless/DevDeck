@@ -1,6 +1,6 @@
 # DevDeck（开发台）
 
-DevDeck 是一款运行在 Windows 本机的桌面工具箱，面向个人开发者的日常工作。它以托盘常驻的方式运行，用模块化的"卡片"承载功能，分为两条主线：
+DevDeck 是一款运行在本机（Windows / macOS）的桌面工具箱，面向个人开发者的日常工作。它以托盘常驻的方式运行，用模块化的"卡片"承载功能，分为两条主线：
 
 - **日常开发**：围绕开发过程的度量与辅助。
   - **每日用量**：按天展示 Claude Code 的 input / output / cache 用量和估算费用，支持按模型、按项目筛选
@@ -26,20 +26,24 @@ DevDeck 是一款运行在 Windows 本机的桌面工具箱，面向个人开发
 
 > 安装包和程序未做代码签名，首次运行时 Windows SmartScreen 可能提示「已保护你的电脑」，点击「更多信息 → 仍要运行」即可。
 
+**macOS**（代码已适配，尚未在 Mac 上实测）：`DevDeck_<版本>_<架构>.dmg` 或 `.app.zip`，拖入「应用程序」即可。要求 macOS 11 及以上。
+应用未签名，首次打开若提示「无法验证开发者」，在访达中右键 → 打开，或执行 `xattr -cr /Applications/DevDeck.app`。
+
 ## 使用
 
-- 启动后自动查找 Claude Code 日志目录（`CLAUDE_CONFIG_DIR` → `%USERPROFILE%\.claude` → `%USERPROFILE%\.config\claude`），找不到时可在「设置 → 数据源」手动添加。
-- 关闭窗口默认最小化到托盘；托盘图标悬停显示今日用量，左键显示/隐藏窗口，右键菜单可立即刷新、开关开机自启、退出。
+- 启动后自动查找 Claude Code 日志目录（`CLAUDE_CONFIG_DIR` → `~/.claude` → `~/.config/claude`；Windows 上 `~` 即 `%USERPROFILE%`），找不到时可在「设置 → 数据源」手动添加。
+- 关闭窗口默认最小化到托盘；托盘图标悬停显示今日用量，菜单可立即刷新、开关开机自启、退出。Windows 上左键显示/隐藏窗口、右键打开菜单；macOS 上点击菜单栏图标打开菜单，点击程序坞图标恢复窗口。
 - 费用为按官方价格表计算的**估算值**，价格可在「设置 → 价格表」中自定义。
-- 配置与缓存位于 `%APPDATA%\com.byzer.devdeck\`（`config.json`、`devdeck.db`）；卸载或删除该目录即清除全部数据。会话正文不入库，查看时直接读取日志。
+- 配置、缓存与 Insights 报告归档位于 `%APPDATA%\com.byzer.devdeck\`（macOS：`~/Library/Application Support/com.byzer.devdeck/`），包括 `config.json`、`devdeck.db`、`insights/`；删除该目录即清除全部数据。会话正文不入库，查看时直接读取日志。
 
 ## 开发
 
-环境：Windows 10/11 x64、Rust stable（MSVC 工具链）、Node 20+、pnpm、WebView2。
+环境：Rust stable、Node 20+、pnpm。Windows 需 MSVC 工具链与 WebView2；macOS 需 Xcode Command Line Tools。Mac 应用只能在 macOS 上构建（Tauri 不支持从 Windows 交叉编译）。
 
 ```bash
 pnpm install
 pnpm tauri dev      # 开发运行
 cargo test --manifest-path src-tauri/Cargo.toml   # Rust 测试
-pnpm release        # 打包：NSIS 安装包 + 便携版 zip，输出到 release/
+pnpm release        # Windows 打包：NSIS 安装包 + 便携版 zip，输出到 release/
+pnpm release:mac    # macOS 打包：.dmg + .app.zip（加 --universal 生成 Apple 芯片 + Intel 通用包）
 ```
