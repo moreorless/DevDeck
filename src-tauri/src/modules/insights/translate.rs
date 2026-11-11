@@ -13,8 +13,8 @@ const BATCH_CHARS: usize = 10_000;
 const BATCH_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const MODEL: &str = "sonnet";
 
-const SYSTEM_PROMPT: &str = "你是专业的技术文档翻译。用户会给出一个 JSON 字符串数组，内容来自 Claude Code 使用情况报告。\
-请逐条翻译成简体中文，输出同样长度、同样顺序的 JSON 字符串数组，不要输出任何其他内容。\
+const SYSTEM_PROMPT: &str = "你是专业的技术文档翻译。用户会给出一个 JSON 对象，键是编号、值是待翻译文本，内容来自 Claude Code 使用情况报告。\
+请把每个值翻译成简体中文，输出键完全相同的 JSON 对象（每个键对应一个字符串，不要拆分或合并条目），不要输出任何其他内容。\
 规则：保留 Markdown 标记与换行；多行的 Markdown 文本（例如建议写入 CLAUDE.md 的规则、SKILL.md 内容）\
 和可复制给 Claude 的提示词也要翻译其中的自然语言部分；纯代码条目（JSON、脚本、命令行）原样返回；\
 命令、代码、文件路径、URL、标识符、YAML 键名、配置项名保持原样；\
@@ -183,29 +183,74 @@ fn batches(segs: &[Segment]) -> Vec<Vec<String>> {
     out
 }
 
-/// 从模型输出中取出 JSON 数组（可能带 ``` 包裹）
-fn parse_array(result: &str, expect: usize) -> Result<Vec<String>> {
-    let (a, b) = (result.find('['), result.rfind(']'));
+/// 从模型输出中取出 JSON 对象（可能带 ``` 包裹），只保留值为字符串的键
+fn parse_object(result: &str) -> Result<HashMap<String, String>> {
+    let (a, b) = (result.find('{'), result.rfind('}'));
     let json = match (a, b) {
         (Some(a), Some(b)) if a < b => &result[a..=b],
-        _ => return Err(anyhow!("翻译结果不是 JSON 数组")),
+        _ => return Err(anyhow!("翻译结果不是 JSON 对象")),
     };
-    let arr: Vec<String> = serde_json::from_str(json).map_err(|e| anyhow!("翻译结果无法解析：{e}"))?;
-    if arr.len() != expect {
-        return Err(anyhow!("翻译结果条数不符：期望 {expect}，实际 {}", arr.len()));
-    }
-    Ok(arr)
+    let v: HashMap<String, serde_json::Value> =
+        serde_json::from_str(json).map_err(|e| anyhow!("翻译结果无法解析：{e}"))?;
+    Ok(v.into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string()))).collect())
 }
 
-/// 一批的原文、译文与费用
-type BatchResult = (Vec<String>, Vec<String>, f64);
+/// 按编号对齐译文：返回（原文 → 译文，缺失的原文）。多出的编号忽略
+fn align(batch: &[String], got: &HashMap<String, String>) -> (Vec<(String, String)>, Vec<String>) {
+    let mut done = Vec::new();
+    let mut missing = Vec::new();
+    for (i, src) in batch.iter().enumerate() {
+        match got.get(&i.to_string()).filter(|t| !t.trim().is_empty()) {
+            Some(t) => done.push((src.clone(), t.clone())),
+            None => missing.push(src.clone()),
+        }
+    }
+    (done, missing)
+}
+
+/// 调用一次 claude 翻译一批，返回（已对齐的译文，缺失的原文，费用）
+/// 一次调用的（已对齐的译文，缺失的原文，费用）
+type CallResult = (Vec<(String, String)>, Vec<String>, f64);
+
+fn translate_batch(claude: &Path, cwd: &Path, batch: &[String]) -> Result<CallResult> {
+    let input: serde_json::Map<String, serde_json::Value> =
+        batch.iter().enumerate().map(|(i, s)| (i.to_string(), serde_json::Value::String(s.clone()))).collect();
+    let out = cli::run_json(
+        claude,
+        &[
+            "-p",
+            "--model",
+            MODEL,
+            "--system-prompt",
+            SYSTEM_PROMPT,
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+            "--settings",
+            cli::NO_HOOKS_SETTINGS,
+        ],
+        Some(&serde_json::to_string(&input)?),
+        cwd,
+        BATCH_TIMEOUT,
+    )?;
+    let (done, missing) = align(batch, &parse_object(&out.result)?);
+    Ok((done, missing, out.cost_usd.unwrap_or(0.0)))
+}
+
+/// 一批的译文、仍缺失的条数与费用
+type BatchResult = (Vec<(String, String)>, usize, f64);
 
 pub struct Translated {
     pub html: String,
     pub cost_usd: f64,
+    /// 重试后仍未翻译、保留原文的段数
+    pub untranslated: usize,
 }
 
-/// 翻译整份报告；各批并行执行，任一批失败则整体失败（不产生半中半英的结果）
+/// 翻译整份报告；各批并行执行。某批漏译的条目单独重试一次，仍缺失的保留原文；
+/// 调用失败（超时、非零退出、输出无法解析）则整体失败
 pub fn translate_html(claude: &Path, cwd: &Path, html: &str) -> Result<Translated> {
     let segs = segments(html);
     let jobs = batches(&segs);
@@ -214,29 +259,17 @@ pub fn translate_html(claude: &Path, cwd: &Path, html: &str) -> Result<Translate
             .into_iter()
             .map(|batch| {
                 s.spawn(move || {
-                    let input = serde_json::to_string(&batch)?;
-                    let out = cli::run_json(
-                        claude,
-                        &[
-                            "-p",
-                            "--model",
-                            MODEL,
-                            "--system-prompt",
-                            SYSTEM_PROMPT,
-                            "--tools",
-                            "",
-                            "--strict-mcp-config",
-                            "--disable-slash-commands",
-                            "--no-session-persistence",
-                            "--settings",
-                            cli::NO_HOOKS_SETTINGS,
-                        ],
-                        Some(&input),
-                        cwd,
-                        BATCH_TIMEOUT,
-                    )?;
-                    let arr = parse_array(&out.result, batch.len())?;
-                    Ok((batch, arr, out.cost_usd.unwrap_or(0.0)))
+                    let (mut done, missing, mut cost) = translate_batch(claude, cwd, &batch)?;
+                    let mut left = missing.len();
+                    // 重试失败不影响本批已翻译的部分
+                    if !missing.is_empty()
+                        && let Ok((more, still, c)) = translate_batch(claude, cwd, &missing)
+                    {
+                        done.extend(more);
+                        left = still.len();
+                        cost += c;
+                    }
+                    Ok((done, left, cost))
                 })
             })
             .collect();
@@ -245,12 +278,14 @@ pub fn translate_html(claude: &Path, cwd: &Path, html: &str) -> Result<Translate
 
     let mut map = HashMap::new();
     let mut cost = 0.0;
+    let mut untranslated = 0;
     for r in results {
-        let (src, dst, c) = r?;
+        let (done, left, c) = r?;
         cost += c;
-        map.extend(src.into_iter().zip(dst));
+        untranslated += left;
+        map.extend(done);
     }
-    Ok(Translated { html: apply(html, &segs, &map), cost_usd: cost })
+    Ok(Translated { html: apply(html, &segs, &map), cost_usd: cost, untranslated })
 }
 
 #[cfg(test)]
@@ -321,10 +356,13 @@ mod tests {
     }
 
     #[test]
-    fn parse_array_checks() {
-        assert_eq!(parse_array("```json\n[\"甲\",\"乙\"]\n```", 2).unwrap(), vec!["甲", "乙"]);
-        assert!(parse_array("[\"甲\"]", 2).is_err());
-        assert!(parse_array("抱歉", 1).is_err());
+    fn parse_and_align_by_key() {
+        let got = parse_object("```json\n{\"0\": \"甲\", \"2\": \"丙\", \"9\": \"多余\", \"1\": 3}\n```").unwrap();
+        let batch: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        let (done, missing) = align(&batch, &got);
+        assert_eq!(done, vec![("a".to_string(), "甲".to_string()), ("c".to_string(), "丙".to_string())]);
+        assert_eq!(missing, vec!["b".to_string()], "非字符串值视为缺失，多余的键忽略");
+        assert!(parse_object("抱歉").is_err());
     }
 
     /// 本机真实报告的抽取统计：`cargo test real_report_segments -- --ignored --nocapture`
@@ -354,7 +392,7 @@ mod tests {
         let claude = cli::find_claude(None).unwrap();
         let start = std::time::Instant::now();
         let t = translate_html(&claude, &std::env::temp_dir(), &html).unwrap();
-        println!("耗时 {:?}，费用 ${:.3}", start.elapsed(), t.cost_usd);
+        println!("耗时 {:?}，费用 ${:.3}，保留原文 {} 段", start.elapsed(), t.cost_usd, t.untranslated);
         std::fs::write(out, &t.html).unwrap();
     }
 }

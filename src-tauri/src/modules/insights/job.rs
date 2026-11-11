@@ -139,9 +139,9 @@ fn run(app: &AppHandle, kind: JobKind, cost: &mut f64, report_id: &mut Option<i6
             }
             app.state::<InsightsJob>().update(app, |s| s.phase = Some("translating".into()));
             match translate_one(&state, &claude, &cwd, id) {
-                Ok(c) => {
+                Ok((c, left)) => {
                     *cost += c;
-                    Ok("报告已生成并翻译为中文".into())
+                    Ok(format!("报告已生成并翻译为中文{}", untranslated_note(left)))
                 }
                 // 生成本身已成功：翻译失败只提示，可在页面上重试
                 Err(e) => Err(anyhow!("报告已生成，但翻译失败（可在报告页重试）：{e:#}")),
@@ -149,19 +149,25 @@ fn run(app: &AppHandle, kind: JobKind, cost: &mut f64, report_id: &mut Option<i6
         }
         JobKind::Translate { id } => {
             *report_id = Some(id);
-            *cost += translate_one(&state, &claude, &cwd, id)?;
-            Ok("已翻译为中文".into())
+            let (c, left) = translate_one(&state, &claude, &cwd, id)?;
+            *cost += c;
+            Ok(format!("已翻译为中文{}", untranslated_note(left)))
         }
     }
 }
 
-fn translate_one(state: &AppState, claude: &std::path::Path, cwd: &std::path::Path, id: i64) -> Result<f64> {
+fn untranslated_note(left: usize) -> String {
+    if left == 0 { String::new() } else { format!("（{left} 段未能翻译，保留原文）") }
+}
+
+/// 翻译并保存译文，返回（费用，保留原文的段数）
+fn translate_one(state: &AppState, claude: &std::path::Path, cwd: &std::path::Path, id: i64) -> Result<(f64, usize)> {
     let src = archive::archived_path(&state.conn(), &state.insights_dir, id, false)?;
     let html = String::from_utf8_lossy(&std::fs::read(&src)?).into_owned();
     let t = translate::translate_html(claude, cwd, &html)?;
     archive::save_translation(&state.conn(), &state.insights_dir, id, &t.html)?;
     add_cost(state, id, t.cost_usd)?;
-    Ok(t.cost_usd)
+    Ok((t.cost_usd, t.untranslated))
 }
 
 fn add_cost(state: &AppState, id: i64, usd: f64) -> Result<()> {
