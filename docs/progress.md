@@ -160,7 +160,36 @@ M4 人工验收：用户确认正常（2026-11-11）。
 - 开机自启：开发模式下注册的是 debug 版 exe，测试后请关闭；正式验证放到 M6 安装包
 - 断网可用、日志目录配置错误时显示引导（方案验收项）
 
+## M6 打包分发（2026-11-11）
+
+**已完成**
+
+- `tauri.conf.json`：NSIS 简体中文界面、按当前用户安装（无需管理员）、WebView2 内嵌引导程序（`embedBootstrapper`，静默）；补充发布者、版权、描述
+- `pnpm release`（`scripts/release.ps1`）：构建并输出到 `release/`（已忽略提交）
+  - `DevDeck_<版本>_x64-setup.exe`：NSIS 安装包
+  - `DevDeck_<版本>_x64_portable.zip`：单个 exe（前端资源已内嵌）+ 使用说明
+- README：安装方式、系统要求、SmartScreen 提示、使用说明、数据位置、开发命令
+
+**验收记录**
+
+- release 构建（LTO）4 分 30 秒；安装包 4.6 MB、便携版 zip 3.5 MB、exe 8.3 MB
+- 本机运行便携版：主窗口正常显示，内存 38 MB；启动后自动增量扫描 817 个文件 0.2 秒，坏行 0，无错误
+
+**偏差**
+
+- WebView2 采用内嵌引导程序而非离线安装包：安装包从 ~130 MB 降到 4.6 MB；代价是「没有 WebView2 且无网络」的机器无法安装。Windows 11 自带 WebView2，Windows 10 一般已随系统更新安装
+- 便携版的配置与缓存仍在 `%APPDATA%\com.byzer.devdeck\`（与安装版共用），未做「数据跟随 exe 目录」
+- 打包脚本需兼容 Windows PowerShell 5：脚本文件带 UTF-8 BOM，读取 JSON 显式指定 UTF-8
+
+**待人工确认**
+
+- 安装包安装 / 卸载流程（开始菜单、卸载后程序目录清理）；未在本机执行安装，以免改动当前环境
+- 方案验收项「未装 Node、无网络的干净 Windows 10/11 上安装后正常显示数据」：需在干净机器或虚拟机上验证
+- 安装版开机自启（注册的是安装目录的 exe）
+
 ## 待确认
+
+- 离线且无 WebView2 的机器：如有需要，另出 `offlineInstaller` 版本安装包
 
 - fast mode 与 US 地域在日志中的实际字段取值
 
