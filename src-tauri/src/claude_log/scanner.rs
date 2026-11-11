@@ -22,7 +22,8 @@ use super::{
 pub enum ScanMode {
     /// 只读新增内容
     Incremental,
-    /// 清空后全部重读（在同一事务中完成，失败时保留旧数据）
+    /// 全部重读（在同一事务中完成，失败时保留旧数据）。
+    /// 日志文件已被删除的历史用量保留，只按当前时区重算日期
     Full,
 }
 
@@ -51,7 +52,13 @@ pub fn scan<Tz: TimeZone>(
     let tx = conn.transaction()?;
 
     if mode == ScanMode::Full {
-        tx.execute_batch("DELETE FROM file_cursor; DELETE FROM usage_event; DELETE FROM sessions;")?;
+        tx.execute_batch("DELETE FROM file_cursor; DELETE FROM sessions;")?;
+        // 现存日志会被完整重读，先删掉它们的旧用量；已无日志的会话用量保留
+        let mut del = tx.prepare("DELETE FROM usage_event WHERE session_id = ?1")?;
+        let sids: BTreeSet<&str> = files.iter().map(|f| f.session_id.as_str()).collect();
+        for sid in sids {
+            del.execute([sid])?;
+        }
     }
 
     for (i, f) in files.iter().enumerate() {
@@ -59,6 +66,9 @@ pub fn scan<Tz: TimeZone>(
         progress(i + 1, files.len());
     }
     remove_missing(&tx, files)?;
+    if mode == ScanMode::Full {
+        recompute_dates(&tx, tz)?;
+    }
     tx.commit()?;
 
     stats.duration_ms = started.elapsed().as_millis() as u64;
@@ -204,6 +214,24 @@ fn remove_missing(tx: &Transaction, files: &[LogFile]) -> Result<()> {
     for p in known.into_iter().filter(|p| !present.contains(p)) {
         tx.execute("DELETE FROM file_cursor WHERE path = ?1", [&p])?;
         tx.execute("DELETE FROM sessions WHERE file_path = ?1", [&p])?;
+    }
+    Ok(())
+}
+
+/// 按当前时区重算所有用量的归属日期（时区变更后保留的历史用量也要跟着变）
+fn recompute_dates<Tz: TimeZone>(tx: &Transaction, tz: &Tz) -> Result<()> {
+    let rows: Vec<(String, String, String, String)> = {
+        let mut stmt = tx.prepare("SELECT message_id, request_id, ts, date FROM usage_event")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?
+    };
+    let mut upd = tx.prepare("UPDATE usage_event SET date = ?1 WHERE message_id = ?2 AND request_id = ?3")?;
+    for (mid, rid, ts, old) in rows {
+        if let Some(t) = parse_ts(Some(ts)) {
+            let d = t.with_timezone(tz).date_naive().format("%Y-%m-%d").to_string();
+            if d != old {
+                upd.execute(params![d, mid, rid])?;
+            }
+        }
     }
     Ok(())
 }
@@ -472,6 +500,35 @@ mod tests {
         scan_utc(&mut conn, &dir, ScanMode::Incremental);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM sessions WHERE session_id='sess-b'"), 0);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM usage_event WHERE session_id='sess-b'"), 1);
+    }
+
+    #[test]
+    fn full_rebuild_keeps_usage_of_deleted_logs_and_recomputes_dates() {
+        let (_tmp, dir) = copy_fixture();
+        let mut conn = crate::db::open_in_memory().unwrap();
+        scan_utc(&mut conn, &dir, ScanMode::Full);
+        // sess-b 的日志被 Claude Code 清理后再全量重建（换成 UTC+14，日期整体后移）
+        std::fs::remove_file(dir.join("projects").join("D--other").join("sess-b.jsonl")).unwrap();
+        let files = list_log_files(&[dir.clone()]);
+        let tz = FixedOffset::east_opt(14 * 3600).unwrap();
+        scan(&mut conn, &files, ScanMode::Full, &tz, &mut |_, _| {}).unwrap();
+
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM usage_event"), 5);
+        let d: String =
+            conn.query_row("SELECT date FROM usage_event WHERE message_id='msg_b1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(d, "2026-11-04", "保留的历史用量按新时区重算日期");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM sessions"), 1);
+    }
+
+    #[test]
+    fn full_rebuild_rereads_existing_logs() {
+        let (_tmp, dir) = copy_fixture();
+        let mut conn = crate::db::open_in_memory().unwrap();
+        scan_utc(&mut conn, &dir, ScanMode::Full);
+        // 模拟旧版本写入了错误数据：现存日志的用量应被重读覆盖
+        conn.execute("UPDATE usage_event SET output_tokens = 999999 WHERE message_id = 'msg_a1'", []).unwrap();
+        scan_utc(&mut conn, &dir, ScanMode::Full);
+        assert_eq!(count(&conn, "SELECT output_tokens FROM usage_event WHERE message_id='msg_a1'"), 50);
     }
 
     #[test]

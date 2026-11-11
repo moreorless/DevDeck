@@ -178,6 +178,35 @@ pub fn summary(conn: &Connection, pricing: &PricingTable, today: NaiveDate) -> R
     Ok(s)
 }
 
+/// 生成 CSV：每日 × 模型一行，日期倒序。带 UTF-8 BOM，方便 Excel 识别中文
+pub fn to_csv(rows: &[DailyModelUsage]) -> String {
+    let mut sorted: Vec<&DailyModelUsage> = rows.iter().collect();
+    sorted.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.model.cmp(&b.model)));
+    let mut out = String::from(
+        "\u{feff}日期,模型,Input,Output,Cache 写 (5m),Cache 写 (1h),Cache 读,合计,估算费用 (USD),价格已知\r\n",
+    );
+    for r in sorted {
+        out.push_str(&format!(
+            "{},{},{},{},{},{},{},{},{:.6},{}\r\n",
+            r.date,
+            csv_field(&r.model),
+            r.input_tokens,
+            r.output_tokens,
+            r.cache_write_5m_tokens,
+            r.cache_write_1h_tokens,
+            r.cache_read_tokens,
+            r.total_tokens,
+            r.cost_usd,
+            if r.priced { "是" } else { "否" },
+        ));
+    }
+    out
+}
+
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
+}
+
 pub fn list_projects(conn: &Connection) -> Result<Vec<String>> {
     distinct(conn, "SELECT project FROM usage_event UNION SELECT project FROM sessions WHERE project IS NOT NULL ORDER BY 1")
 }
@@ -272,6 +301,20 @@ mod tests {
         assert_eq!(s.prev7.tokens, 150_100 + 1382 + 110 + 2);
         assert_eq!(s.last30.tokens, s.prev7.tokens);
         assert_eq!(s.unpriced_models, vec!["unknown-model-x".to_string()]);
+    }
+
+    #[test]
+    fn csv_export() {
+        let (_t, _d, conn) = scanned_db();
+        let p = PricingTable::builtin();
+        let csv = to_csv(&daily_usage(&conn, &p, &filter("2026-11-01", "2026-11-03")).unwrap());
+        let lines: Vec<&str> = csv.split("\r\n").filter(|l| !l.is_empty()).collect();
+        assert!(lines[0].starts_with("\u{feff}日期,模型"));
+        assert_eq!(lines.len(), 5);
+        assert!(lines[1].starts_with("2026-11-03,unknown-model-x,1,1,"), "{}", lines[1]);
+        assert!(lines[1].ends_with(",否"));
+        assert_eq!(lines[3], "2026-11-01,claude-opus-5-5,12,70,100,200,1000,1382,0.003748,是");
+        assert_eq!(csv_field(r#"a,"b""#), r#""a,""b""""#);
     }
 
     #[test]

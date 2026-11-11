@@ -41,3 +41,5 @@ export const getDailyUsage = (filter: UsageFilter) => invoke<DailyModelUsage[]>(
 export const getSummary = () => invoke<Summary>("get_summary");
 export const listProjects = () => invoke<string[]>("list_projects");
 export const listModels = () => invoke<string[]>("list_models");
+/** 写出 CSV，返回行数 */
+export const exportCsv = (path: string, filter: UsageFilter) => invoke<number>("export_csv", { path, filter });

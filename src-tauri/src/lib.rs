@@ -20,6 +20,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             window::show_main(app);
         }))
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(AppState::init(&handle)?);
@@ -34,6 +35,7 @@ pub fn run() {
             usage::commands::get_summary,
             usage::commands::list_projects,
             usage::commands::list_models,
+            usage::commands::export_csv,
             sessions::commands::list_sessions,
         ])
         .on_window_event(|win, event| {
