@@ -395,3 +395,34 @@ I2 迁移（user_version 4）：`insights_report` 增加 `translated_file TEXT`�
 | 报告含项目名与工作内容摘要 | 隐私 | 可在设置中关闭、可一键清除、不联网；生成需确认 |
 | 每次运行消耗额度 | 费用 | 触发前确认；只在用户操作时触发，不做定时触发 |
 
+## 13. 套餐额度显示（2026-11-12 用户需求）
+
+### 13.1 目标
+
+显示 Claude 订阅的已用额度百分比与重置时间：当前会话（5 小时）、本周（全部模型）、本周（单个模型，如 Fable）。
+
+### 13.2 数据来源（本机核实）
+
+- 会话日志只在被限流（429）时记录 `rate_limit_info`（有重置时间、无百分比），不够用
+- 状态栏输入的 `rate_limits` 只有 `five_hour` / `seven_day`，没有按模型的周额度，且只在 Claude Code 运行时更新
+- `/usage` 的完整数据来自 Claude Code 用登录凭据请求的未公开接口 `/api/oauth/usage`；DevDeck 不读取凭据、不直接请求
+- **采用**：参考 magpie（MIT）的做法，运行 Claude Code 自带的 `claude -p /usage --output-format json --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence`，解析其文本输出。本机实测约 5 秒、`total_cost_usd` 为 0、`num_turns` 为 0（不调用模型）；`--setting-sources ""` 同时避免触发用户 hooks
+- 输出示例：`Current session: 42% used · resets Nov 12, 2am (America/Denver)`、`Current week (all models): 91% used · ...`、`Current week (Fable): 95% used · ...`
+
+### 13.3 设计
+
+- 后端 `modules/quota/`：`parse.rs` 按行宽松解析（认不出的行忽略；重置时间支持「月 日, 时刻 (时区)」「月 日 at 时刻」「带年份」「只有时刻」，无年份时取落在合理窗口内的那一年，夏令时回拨取较晚的一次）；有窗口即成功，否则区分「账号不可用」（未登录、401/403 等）与「没有额度信息」（如 API Key 计费）
+- 调用 claude 的公共封装从 insights 移到 `claude_cli.rs`（超时、`CREATE_NO_WINDOW`、错误上报），claude 路径沿用设置中的 `insights.claudePath`
+- 缓存：内存 + `meta` 表（`quota.snapshot`），重启后先显示上次读数；读取失败保留上次读数并显示错误
+- 读取时机：打开页面且无读数时、手动刷新（最小间隔 3 秒，后台最小 30 秒）、后台每分钟检查一次——距上次读取超过 10 分钟且有新用量，或某窗口重置时间已过，或读数超过 1 小时
+- 展示：每日用量页顶部「套餐额度」卡片（进度条：<70% 正常、70–90% 提醒、≥90% 告急；重置时间显示本地时间与剩余时长）；托盘提示第二行 `额度 5h 42% · 周 91% · Fable 95%`
+- 配置 `quota.enabled` 默认开启，可在设置中关闭（关闭后不再运行 /usage）
+
+### 13.4 风险
+
+| 风险 | 影响 | 应对 |
+| --- | --- | --- |
+| `/usage` 输出格式随版本变化 | 解析不到窗口 | 宽松解析，显示首行原文；保留上次读数 |
+| 被限流或网络异常时 /usage 失败 | 读数不更新 | 保留上次读数并提示错误，下次定时重试 |
+| 频繁运行 claude 进程 | 资源占用 | 只在有新用量时每 10 分钟左右读取一次 |
+

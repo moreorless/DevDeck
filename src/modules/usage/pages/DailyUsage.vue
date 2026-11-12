@@ -8,12 +8,16 @@ import KpiCards from "../components/KpiCards.vue";
 import FilterBar from "../components/FilterBar.vue";
 import UsageChart from "../components/UsageChart.vue";
 import UsageTable from "../components/UsageTable.vue";
+import QuotaCard from "../../quota/components/QuotaCard.vue";
+import { useSettingsStore } from "../../../app/settings";
 
 const store = useUsageStore();
 const theme = useThemeStore();
 const router = useRouter();
 const message = useMessage();
 const exporting = ref(false);
+const settings = useSettingsStore();
+const quotaOn = computed(() => settings.config?.quota.enabled ?? true);
 
 onMounted(() => store.init());
 
@@ -62,6 +66,7 @@ async function onExport() {
     </div>
 
     <n-space vertical :size="12">
+      <QuotaCard v-if="quotaOn" />
       <KpiCards :summary="store.summary" />
       <FilterBar />
       <UsageChart

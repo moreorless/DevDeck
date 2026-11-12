@@ -254,6 +254,14 @@ M4 人工验收：用户确认正常（2026-11-11）。
 - 工作流改为 `.github/workflows/build.yml`（2026-11-12）：Windows（`pnpm release`：NSIS 安装包 + 便携版）与 macOS（通用包）矩阵并行，`fail-fast: false`；各平台先跑 Rust 测试再打包，产物分别上传为 `DevDeck-windows` / `DevDeck-macos`；推送 `v*` 标签时由单独的 release 任务在两个平台都成功后创建 Release 草稿（避免两个任务同时创建）
 - 待 Mac 上运行验证（编译与测试已在 CI 通过）：菜单栏图标深浅色、点击图标弹出菜单、程序坞恢复窗口、开机自启、日志目录与 claude 自动检测、Insights 生成与翻译、访达打开项目目录
 
+## 套餐额度显示（2026-11-12）
+
+- 需求：显示当前会话、本周、Fable 的已用百分比与重置时间。核查后采用 magpie 的方案：运行 `claude -p /usage`（不调用模型，本机实测约 5 秒、费用 0），解析文本输出；详见方案第 13 节
+- 后端：新增 `modules/quota/`（解析、缓存、后台定时、commands `get_quota` / `refresh_quota`、事件 `quota://updated`）；`insights/cli.rs` 移为公共的 `claude_cli.rs`；配置新增 `quota.enabled`（默认开启）；托盘提示增加额度行
+- 前端：每日用量页顶部「套餐额度」卡片；设置页「统计与刷新」新增开关
+- 测试：新增 7 个单元测试（真实输出解析、重置时间格式与跨年、ANSI 与无重置时间、无额度与账号错误、后台调度条件、托盘文字、读数保存），共 67 个通过；本机测试 `real_usage`（实际运行 /usage，4.8 秒解析出 3 个窗口）
+- 待手动验证：每日用量页卡片显示与刷新、托盘提示第二行、关闭开关后卡片隐藏
+
 ## 待确认
 
 - 离线且无 WebView2 的机器：如有需要，另出 `offlineInstaller` 版本安装包

@@ -178,6 +178,15 @@ function confirmRebuild() {
             <n-radio-button v-for="o in refreshOptions" :key="o.value" :value="o.value">{{ o.label }}</n-radio-button>
           </n-radio-group>
         </n-form-item>
+        <n-form-item label="套餐额度">
+          <n-switch
+            :value="cfg.quota.enabled"
+            @update:value="(v: boolean) => save({ quota: { enabled: v } }, v ? '已开启套餐额度显示' : '已关闭套餐额度显示')"
+          />
+          <n-text depth="3" style="font-size: 12px; margin-left: 12px">
+            在「每日用量」页显示当前会话、本周与各模型的已用百分比；定期运行 claude -p /usage 读取，不调用模型、不消耗额度
+          </n-text>
+        </n-form-item>
         <n-form-item label="缓存">
           <n-button size="small" :loading="rebuilding" @click="confirmRebuild">全量重建缓存</n-button>
         </n-form-item>

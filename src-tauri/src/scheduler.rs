@@ -1,4 +1,4 @@
-//! 定时任务：按配置间隔增量刷新；每分钟更新一次托盘提示（跨零点后「今日」随之切换）
+//! 定时任务：按配置间隔增量刷新；每分钟更新一次托盘提示（跨零点后「今日」随之切换），并检查是否该读取套餐额度
 
 use std::{
     sync::atomic::Ordering,
@@ -7,7 +7,7 @@ use std::{
 
 use tauri::{AppHandle, Manager};
 
-use crate::{claude_log::scanner::ScanMode, scan_service, state::AppState, tray};
+use crate::{claude_log::scanner::ScanMode, modules::quota, scan_service, state::AppState, tray};
 
 const TICK: Duration = Duration::from_secs(10);
 const TOOLTIP_EVERY: Duration = Duration::from_secs(60);
@@ -37,6 +37,7 @@ pub fn spawn(app: AppHandle) {
             if last_tooltip.elapsed() >= TOOLTIP_EVERY {
                 last_tooltip = Instant::now();
                 tray::refresh_tooltip(&app);
+                quota::maybe_refresh_in_background(&app);
             }
         }
     });

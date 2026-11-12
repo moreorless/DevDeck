@@ -6,7 +6,7 @@ use std::{collections::HashMap, path::Path, time::Duration};
 
 use anyhow::{Result, anyhow};
 
-use super::cli;
+use crate::claude_cli as cli;
 
 /// 每批最多的字符数（实测报告正文约 2.7 万字符，分 3 批左右）
 const BATCH_CHARS: usize = 10_000;

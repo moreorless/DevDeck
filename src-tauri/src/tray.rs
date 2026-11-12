@@ -11,7 +11,10 @@ use tauri_plugin_autostart::ManagerExt;
 
 use crate::{
     claude_log::scanner::ScanMode,
-    modules::usage::{commands::today, query},
+    modules::{
+        quota::{self, QuotaState},
+        usage::{commands::today, query},
+    },
     scan_service,
     shared_format::{fmt_tokens, fmt_usd},
     state::AppState,
@@ -128,13 +131,19 @@ pub fn set_autostart(app: &AppHandle, enable: bool) -> Result<bool> {
     Ok(actual)
 }
 
-/// 悬停提示：`DevDeck · 今日 1.23M tokens · $4.56`
+/// 悬停提示：`DevDeck · 今日 1.23M tokens · $4.56`，第二行为套餐额度
 pub fn refresh_tooltip(app: &AppHandle) {
     let Some(state) = app.try_state::<AppState>() else { return };
-    let text = match query::summary(&state.conn(), &state.pricing(), today(&state)) {
+    let mut text = match query::summary(&state.conn(), &state.pricing(), today(&state)) {
         Ok(s) => format!("DevDeck · 今日 {} tokens · {}", fmt_tokens(s.today.tokens), fmt_usd(s.today.cost_usd)),
         Err(_) => "DevDeck".to_string(),
     };
+    // 第二行：套餐额度 `5h 42% · 周 91% · Fable 95%`
+    if state.config().quota.enabled
+        && let Some(q) = app.try_state::<QuotaState>().and_then(|q| quota::tooltip_text(&q.snapshot()))
+    {
+        text.push_str(&format!("\n额度 {q}"));
+    }
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_tooltip(Some(text));
     }

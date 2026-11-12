@@ -29,6 +29,20 @@ pub struct AppConfig {
     /// system | light | dark
     pub theme: String,
     pub insights: InsightsConfig,
+    pub quota: QuotaConfig,
+}
+
+/// 套餐额度显示：定期运行 `claude -p /usage` 读取（不调用模型）；默认开启
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct QuotaConfig {
+    pub enabled: bool,
+}
+
+impl Default for QuotaConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// Insights 模块配置；默认开启（只归档与查看，生成报告需用户点击并确认）
@@ -59,6 +73,7 @@ impl Default for AppConfig {
             close_to_tray: true,
             theme: "system".into(),
             insights: InsightsConfig::default(),
+            quota: QuotaConfig::default(),
         }
     }
 }

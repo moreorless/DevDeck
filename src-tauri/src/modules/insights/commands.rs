@@ -2,10 +2,13 @@ use anyhow::anyhow;
 use tauri::{AppHandle, Emitter, State};
 
 use super::{
-    EVT_INSIGHTS_UPDATED, archive, cli,
+    EVT_INSIGHTS_UPDATED, archive,
     job::{self, InsightsJob, JobKind, JobStatus},
 };
-use crate::state::{AppState, err};
+use crate::{
+    claude_cli as cli,
+    state::{AppState, err},
+};
 
 fn ensure_enabled(state: &AppState) -> Result<(), String> {
     if state.config().insights.enabled { Ok(()) } else { Err(err(anyhow!("Insights 模块未开启"))) }

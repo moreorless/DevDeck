@@ -25,6 +25,7 @@ export interface AppConfig {
     /** 生成后自动翻译为简体中文 */
     translate: boolean;
   };
+  quota: { enabled: boolean };
 }
 
 export interface DirStatus {

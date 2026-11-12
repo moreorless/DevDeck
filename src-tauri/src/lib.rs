@@ -1,3 +1,4 @@
+mod claude_cli;
 mod claude_log;
 mod config;
 mod db;
@@ -14,7 +15,7 @@ mod window;
 use tauri::{Manager, WindowEvent};
 
 use crate::{
-    modules::{insights, sessions, usage},
+    modules::{insights, quota, sessions, usage},
     state::AppState,
 };
 
@@ -35,7 +36,10 @@ pub fn run() {
         ))
         .setup(|app| {
             let handle = app.handle().clone();
-            app.manage(AppState::init(&handle)?);
+            let state = AppState::init(&handle)?;
+            let saved_quota = quota::load_saved(&state.conn());
+            app.manage(state);
+            app.manage(quota::QuotaState::new(saved_quota));
             app.manage(insights::job::InsightsJob::default());
             tray::init(&handle)?;
             // 主窗口初始隐藏（tauri.conf.json visible=false），非自启场景才显示，避免闪一下
@@ -74,6 +78,8 @@ pub fn run() {
             insights::commands::translate_insight,
             insights::commands::get_insights_job,
             insights::commands::detect_claude,
+            quota::commands::get_quota,
+            quota::commands::refresh_quota,
         ])
         .on_window_event(|win, event| {
             // 显示缩放变化：托盘图标换成对应尺寸

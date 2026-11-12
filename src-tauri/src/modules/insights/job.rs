@@ -11,7 +11,8 @@ use rusqlite::params;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::{EVT_INSIGHTS_UPDATED, archive, cli, translate};
+use super::{EVT_INSIGHTS_UPDATED, archive, translate};
+use crate::claude_cli as cli;
 use crate::{claude_log::scanner::fmt_ts, state::AppState};
 
 pub const EVT_INSIGHTS_JOB: &str = "insights://job";
