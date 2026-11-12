@@ -1,6 +1,6 @@
 [package]
 name = "devdeck"
-version = "0.1.0"
+version = "0.2.0"
 description = "DevDeck - 个人开发者桌面工具箱"
 authors = ["byzer"]
 edition = "2024"

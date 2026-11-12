@@ -13,7 +13,7 @@ DevDeck 是一款运行在本机（Windows / macOS）的桌面工具箱，面向
 - 轻量常驻：基于 Tauri 2 + Vue 3，安装包小、内存占用低
 - 模块化：每项功能是一个独立模块，按需扩展
 
-**当前状态**：v0.1，进度见 [docs/progress.md](docs/progress.md)，方案见 [docs/DevDeck 实现方案.md](docs/DevDeck%20实现方案.md)。
+**当前状态**：v0.2（新增 Insights 报告归档与中文翻译、套餐额度显示、macOS 兼容），进度见 [docs/progress.md](docs/progress.md)，方案见 [docs/DevDeck 实现方案.md](docs/DevDeck%20实现方案.md)。
 
 ## 安装
 
