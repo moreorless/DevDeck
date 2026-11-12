@@ -1,0 +1,89 @@
+# 在 GitHub 云端同时构建 Windows 与 macOS 安装包，产物作为 Artifact 下载
+# - Windows：NSIS 安装包 + 便携版 zip（scripts/release.ps1）
+# - macOS：Apple 芯片 + Intel 通用包 .dmg + .app.zip（scripts/release-mac.sh --universal）
+# 触发：Actions 页面手动运行；推送 v* 标签时，两个平台都成功后创建 GitHub Release 草稿并附上全部产物
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false # 一个平台失败不取消另一个，便于分别排查
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            rust_targets: ""
+            release_cmd: pnpm release
+          - name: macos
+            os: macos-latest
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            release_cmd: bash scripts/release-mac.sh --universal
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust 测试
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: 打包
+        run: ${{ matrix.release_cmd }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DevDeck-${{ matrix.name }}
+          path: release/*
+          if-no-files-found: error
+
+  # 两个平台都成功后才建 Release，避免两个任务同时创建同一个 Release
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 创建 Release 草稿
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -lh dist
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --draft --title "DevDeck $GITHUB_REF_NAME" --notes-file - <<'EOF'
+          安装包均未签名：
+          - Windows：首次运行若 SmartScreen 提示，选择「更多信息 → 仍要运行」。安装包按当前用户安装；便携版解压后直接运行 DevDeck.exe。
+          - macOS（Apple 芯片 + Intel 通用包，macOS 11+）：首次打开若提示「无法验证开发者」，在访达中右键 → 打开，或执行 xattr -cr /Applications/DevDeck.app。
+          EOF
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber

@@ -251,6 +251,7 @@ M4 人工验收：用户确认正常（2026-11-11）。
 - 打包：`tauri.macos.conf.json`、`scripts/release-mac.sh`（`pnpm release:mac [--universal]`，兼容 macOS 自带 bash 3.2）；Windows 打包配置不变
 - 验证：Windows 上 60 个测试通过、clippy 无新增告警、前端构建通过。尝试 `cargo check --target aarch64-apple-darwin` 失败（objc2 等 C 依赖需要 macOS 工具链），macOS 专用代码改为对照 Tauri 2.12.5 源码核对（`RunEvent::Reopen`、`icon_as_template`）
 - GitHub Actions（`.github/workflows/build-macos.yml`，2026-11-12）：macos-latest 上手动触发或推送 `v*` 标签时构建通用包（Apple 芯片 + Intel），先跑 Rust 测试再打包，产物上传为 Artifact；标签触发时另建 Release 草稿。首次运行 #43163623605 约 16 分钟成功：macOS 上 60 个测试通过，产出 `DevDeck_0.1.0_universal.dmg`（7.7MB）与 `.app.zip`（7.6MB）
+- 工作流改为 `.github/workflows/build.yml`（2026-11-12）：Windows（`pnpm release`：NSIS 安装包 + 便携版）与 macOS（通用包）矩阵并行，`fail-fast: false`；各平台先跑 Rust 测试再打包，产物分别上传为 `DevDeck-windows` / `DevDeck-macos`；推送 `v*` 标签时由单独的 release 任务在两个平台都成功后创建 Release 草稿（避免两个任务同时创建）
 - 待 Mac 上运行验证（编译与测试已在 CI 通过）：菜单栏图标深浅色、点击图标弹出菜单、程序坞恢复窗口、开机自启、日志目录与 claude 自动检测、Insights 生成与翻译、访达打开项目目录
 
 ## 待确认

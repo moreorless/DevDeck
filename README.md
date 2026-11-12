@@ -47,3 +47,5 @@ cargo test --manifest-path src-tauri/Cargo.toml   # Rust 测试
 pnpm release        # Windows 打包：NSIS 安装包 + 便携版 zip，输出到 release/
 pnpm release:mac    # macOS 打包：.dmg + .app.zip（加 --universal 生成 Apple 芯片 + Intel 通用包）
 ```
+
+**云端构建**：GitHub Actions（`.github/workflows/build.yml`）在 Windows 与 macOS 机器上分别测试并打包。在 Actions 页面手动运行即可下载产物；推送版本标签（如 `git tag v0.2.0 && git push origin v0.2.0`）会在两个平台都成功后创建 Release 草稿，附上全部安装包。
