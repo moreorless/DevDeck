@@ -267,6 +267,13 @@ M4 人工验收：用户确认正常（2026-11-11）。
 - 版本号改为 0.2.0（package.json、tauri.conf.json、Cargo.toml / Cargo.lock），推送标签 `v0.2.0` 由 GitHub Actions 构建 Windows 与 macOS 安装包并创建 Release 草稿
 - 包含：Insights 报告归档 / 一键生成 / 中文翻译、套餐额度显示、macOS 兼容、云端构建
 
+## v0.3 规划：任务工作台（2026-11-19）
+
+- 新增方案第 14 节：并行多个 issue、多个会话时，在一处看到分给我的 issue、issue 与会话的关联、待办汇总（含 agent 产生的）；另含每个任务的费用、悬空状态提示、会话等待提醒、一键恢复会话
+- 只显示和触发，不存任务状态；项目专有逻辑由工作区提供的一条命令输出 JSON。首个工作区一侧的命令规格见 meta-hub/home#252，DevDeck 的 T1 依赖它
+- 模块默认关闭；延后验证、流水线与 MR 动态提醒、每日回顾列为 v0.4 候选
+- 下一步：T0 实测（工具调用的路径字段、hook 的等待与结束事件、从 DevDeck 打开终端恢复会话）
+
 ## 待确认
 
 - 离线且无 WebView2 的机器：如有需要，另出 `offlineInstaller` 版本安装包
